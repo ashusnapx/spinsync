@@ -11,10 +11,7 @@ import Razorpay from "razorpay";
 // POST /api/payments/create-order — Create Razorpay order
 // ═══════════════════════════════════════════
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || "",
-  key_secret: process.env.RAZORPAY_KEY_SECRET || "",
-});
+// Instantiation moved to runtime handler to prevent build-time crashes
 
 const PREMIUM_AMOUNT_PAISE = 29900; // ₹299/month
 
@@ -34,10 +31,19 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Create Razorpay order ──
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      return errors.internal("Payment gateway not configured server-side");
+    }
+    
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+    
     const order = await razorpay.orders.create({
       amount: PREMIUM_AMOUNT_PAISE,
       currency: "INR",
-      receipt: `spinsync_${ctx.user.id}_${Date.now()}`,
+      receipt: `dhobiq_${ctx.user.id}_${Date.now()}`,
       notes: {
         userId: ctx.user.id,
         orgId: ctx.orgId,

@@ -1,22 +1,16 @@
-import { db } from "@/db";
-import { locationVerifications } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
-
 // ═══════════════════════════════════════════
-// MULTI-LAYER LOCATION TRUST SCORE
+// CLIENT-SAFE GEOLOCATION UTILITIES
 // ═══════════════════════════════════════════
 
 const EARTH_RADIUS_METERS = 6371000;
-const MAX_ALLOWED_DISTANCE_METERS = 50;
-const TRUST_THRESHOLD = 0.6; // minimum trust to pass
 
-interface GpsCoordinates {
+export interface GpsCoordinates {
   latitude: number;
   longitude: number;
   accuracy?: number; // GPS accuracy in meters
 }
 
-interface TrustScoreResult {
+export interface TrustScoreResult {
   score: number;
   passed: boolean;
   details: {
@@ -30,6 +24,7 @@ interface TrustScoreResult {
 
 /**
  * Haversine formula — distance between two GPS coordinates in meters.
+ * Pure math function — safe for browser/server.
  */
 export function haversineDistance(
   a: GpsCoordinates,
@@ -53,133 +48,28 @@ export function haversineDistance(
 }
 
 /**
- * Score GPS proximity (0 – 0.4).
- * 0m = 0.4, MAX_ALLOWED_DISTANCE_METERS = 0.0
+ * Reverse Geocode: Get a human-readable address from coordinates.
+ * Uses Nominatim (OpenStreetMap) — no API key required for low volume.
+ * Browser-safe utility.
  */
-function scoreGpsProximity(distanceMeters: number, accuracy?: number): number {
-  // Account for GPS inaccuracy: if accuracy > 50m, be more lenient
-  const effectiveMax = Math.max(MAX_ALLOWED_DISTANCE_METERS, accuracy || 0);
-  if (distanceMeters <= effectiveMax) {
-    return 0.4 * (1 - distanceMeters / effectiveMax);
+export async function reverseGeocode(lat: number, lng: number): Promise<string> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      {
+        headers: {
+          'Accept-Language': 'en',
+          'User-Agent': 'DhobiQ-App/1.0',
+        },
+      }
+    );
+
+    if (!response.ok) throw new Error('Failed to fetch address');
+
+    const data = await response.json();
+    return data.display_name || 'Address not found';
+  } catch (error) {
+    console.error('Reverse Geocode Error:', error);
+    throw new Error('Could not determine physical address from GPS.');
   }
-  return 0;
-}
-
-/**
- * Score IP-based location match (0 – 0.2).
- * IP geolocation is typically city-level (±5km accuracy).
- */
-function scoreIpMatch(
-  gps: GpsCoordinates,
-  ipLat?: number | null,
-  ipLng?: number | null
-): number {
-  if (ipLat == null || ipLng == null) return 0.1; // Partial credit if no IP data
-  const dist = haversineDistance(gps, { latitude: ipLat, longitude: ipLng });
-  // Within 10km = full score, 50km = 0
-  if (dist <= 10000) return 0.2;
-  if (dist <= 50000) return 0.2 * (1 - (dist - 10000) / 40000);
-  return 0;
-}
-
-/**
- * Score session history (0 – 0.2).
- * Users who have verified from this location before get higher trust.
- */
-async function scoreSessionHistory(userId: string): Promise<number> {
-  const recentVerifications = await db
-    .select()
-    .from(locationVerifications)
-    .where(eq(locationVerifications.userId, userId))
-    .orderBy(desc(locationVerifications.createdAt))
-    .limit(10);
-
-  if (recentVerifications.length === 0) return 0.05; // First-time user gets partial credit
-  const passedCount = recentVerifications.filter((v) => v.passed).length;
-  return 0.2 * (passedCount / recentVerifications.length);
-}
-
-/**
- * Score device consistency (0 – 0.2).
- * Detects impossible location jumps (e.g., 500km in 5 minutes).
- */
-async function scoreDeviceConsistency(
-  userId: string,
-  currentGps: GpsCoordinates
-): Promise<number> {
-  const [lastVerification] = await db
-    .select()
-    .from(locationVerifications)
-    .where(eq(locationVerifications.userId, userId))
-    .orderBy(desc(locationVerifications.createdAt))
-    .limit(1);
-
-  if (!lastVerification) return 0.15; // No history → partial credit
-
-  const timeDiffMs =
-    Date.now() - new Date(lastVerification.createdAt).getTime();
-  const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
-
-  const distance = haversineDistance(currentGps, {
-    latitude: lastVerification.gpsLat,
-    longitude: lastVerification.gpsLng,
-  });
-
-  // Speed check: average human max travel speed ~120 km/h
-  const maxPossibleDistance = timeDiffHours * 120000; // meters
-  if (distance > maxPossibleDistance && timeDiffHours < 24) {
-    return 0; // Impossible jump detected
-  }
-
-  return 0.2;
-}
-
-/**
- * Compute the full multi-layer trust score for a user's location claim.
- */
-export async function computeTrustScore(
-  userId: string,
-  userGps: GpsCoordinates,
-  pgLocation: GpsCoordinates,
-  ipLat?: number | null,
-  ipLng?: number | null
-): Promise<TrustScoreResult> {
-  const distanceMeters = haversineDistance(userGps, pgLocation);
-
-  const gpsProximity = scoreGpsProximity(distanceMeters, userGps.accuracy);
-  const ipMatch = scoreIpMatch(userGps, ipLat, ipLng);
-  const sessionHistory = await scoreSessionHistory(userId);
-  const deviceConsistency = await scoreDeviceConsistency(userId, userGps);
-
-  const score = gpsProximity + ipMatch + sessionHistory + deviceConsistency;
-
-  return {
-    score,
-    passed: score >= TRUST_THRESHOLD,
-    details: { gpsProximity, ipMatch, sessionHistory, deviceConsistency },
-    distanceMeters,
-  };
-}
-
-/**
- * Record a verification attempt in the database.
- */
-export async function recordVerification(
-  userId: string,
-  gps: GpsCoordinates,
-  trustScore: number,
-  passed: boolean,
-  ipLat?: number | null,
-  ipLng?: number | null
-): Promise<void> {
-  await db.insert(locationVerifications).values({
-    userId,
-    gpsLat: gps.latitude,
-    gpsLng: gps.longitude,
-    gpsAccuracy: gps.accuracy ?? null,
-    ipLat: ipLat ?? null,
-    ipLng: ipLng ?? null,
-    trustScore,
-    passed,
-  });
 }

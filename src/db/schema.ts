@@ -75,6 +75,7 @@ export const pgLocations = pgTable("pg_locations", {
   latitude: doublePrecision("latitude").notNull(),
   longitude: doublePrecision("longitude").notNull(),
   orgId: text("org_id").notNull(),
+  machineCount: integer("machine_count").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

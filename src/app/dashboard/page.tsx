@@ -3,15 +3,83 @@
 import { motion } from "framer-motion";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { fadeUp, staggerContainer } from "@/components/ui/Animations";
-import { Activity, Clock, BarChart3, ArrowUpRight, Zap } from "lucide-react";
+import { Activity, Clock, BarChart3, ArrowUpRight, Zap, Copy, Check, Info } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+
+interface PgData {
+  id: string;
+  name: string;
+  code: string;
+  address: string;
+  machineCount: number;
+  role: "pg_admin" | "free_user" | "premium_user";
+}
 
 export default function DashboardOverview() {
+  const [pgData, setPgData] = useState<PgData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/pg")
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setPgData(data.data);
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  const handleCopyCode = () => {
+    if (!pgData?.code) return;
+    navigator.clipboard.writeText(pgData.code);
+    setCopied(true);
+    toast.success("Join code copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight mb-2">Overview</h1>
-        <p className="text-white/50">Welcome back. Here's what's happening at Sunny Meadows PG today.</p>
+        <p className="text-white/50">
+          {isLoading ? "Loading your PG data..." : `Welcome back. Here's what's happening at ${pgData?.name || "your PG"} today.`}
+        </p>
       </div>
+
+      {pgData?.role === "pg_admin" && (
+        <motion.div variants={fadeUp} initial="hidden" animate="visible">
+          <AnimatedCard className="p-6 overflow-hidden relative" glow>
+             <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                <Info className="w-32 h-32 text-primary" />
+             </div>
+             <div className="relative z-10">
+               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                 <div>
+                   <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
+                     Share Join Code
+                   </h3>
+                   <p className="text-sm text-white/50">Tenants need this 6-digit code to join your DhobiQ club.</p>
+                 </div>
+                 
+                 <div className="flex items-center gap-3">
+                    <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-4">
+                       <span className="text-4xl font-black tracking-[0.2em] font-mono text-primary animate-pulse-slow">
+                         {pgData.code}
+                       </span>
+                    </div>
+                    <button 
+                      onClick={handleCopyCode}
+                      className="p-4 rounded-2xl bg-primary text-white hover:bg-primary/80 transition-all active:scale-95 shadow-[0_0_20px_rgba(var(--primary),0.3)]"
+                    >
+                      {copied ? <Check className="w-6 h-6" /> : <Copy className="w-6 h-6" />}
+                    </button>
+                 </div>
+               </div>
+             </div>
+          </AnimatedCard>
+        </motion.div>
+      )}
 
       <motion.div 
         variants={staggerContainer}
@@ -19,7 +87,7 @@ export default function DashboardOverview() {
         animate="visible"
         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
       >
-        <StatCard title="Active Machines" value="4" total="6" icon={Activity} color="cyan" trend="+2 since yesterday" glow />
+        <StatCard title="Active Machines" value={isLoading ? "..." : (pgData?.machineCount || "0")} total={pgData?.machineCount} icon={Activity} color="cyan" trend="+2 since yesterday" glow />
         <StatCard title="Queue Length" value="12" icon={BarChart3} color="violet" trend="Peak hours right now" />
         <StatCard title="Avg Wait Time" value="40m" icon={Clock} color="amber" trend="-5m vs last week" />
         <StatCard title="Your Points" value="1,250" icon={Zap} color="emerald" trend="Top 5% in PG (Rank #3)" glow />
@@ -83,7 +151,17 @@ export default function DashboardOverview() {
   );
 }
 
-function StatCard({ title, value, total, icon: Icon, color, trend, glow = false }: any) {
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  total?: number;
+  icon: React.ElementType;
+  color: "cyan" | "violet" | "amber" | "emerald";
+  trend?: string;
+  glow?: boolean;
+}
+
+function StatCard({ title, value, total, icon: Icon, color, trend, glow = false }: StatCardProps) {
   const colorMap: any = {
     cyan: "text-cyan-400 bg-cyan-400/10",
     violet: "text-violet-400 bg-violet-400/10",

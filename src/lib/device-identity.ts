@@ -27,7 +27,7 @@ interface DeviceCheckResult {
  */
 function hashIp(ip: string): string {
   return createHash("sha256")
-    .update(ip + (process.env.IP_HASH_SALT || "spinsync-salt"))
+    .update(ip + (process.env.IP_HASH_SALT || "dhobiq-salt"))
     .digest("hex")
     .slice(0, 32);
 }

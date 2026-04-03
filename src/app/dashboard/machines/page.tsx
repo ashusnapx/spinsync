@@ -1,139 +1,154 @@
 "use client";
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { AnimatedCard } from "@/components/ui/AnimatedCard";
+import { MachineCard } from "@/components/ui/MachineCard";
 import { fadeUp, staggerContainer } from "@/components/ui/Animations";
-import { QrCode, Play, AlertTriangle, ShieldCheck } from "lucide-react";
-
-// Mock data (would be fetched from API)
-const mockMachines = [
-  { id: "1", name: "Washing Machine #1", type: "Washing", status: "free" },
-  { id: "2", name: "Washing Machine #2", type: "Washing", status: "occupied", remaining: 12 },
-  { id: "3", name: "Dryer #1", type: "Dryer", status: "grace_period", remaining: 3 },
-  { id: "4", name: "Washing Machine #3", type: "Washing", status: "maintenance" },
-];
+import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Plus, Loader2 } from "lucide-react";
 
 export default function MachinesPage() {
-  const [activeTab, setActiveTab] = useState("all");
+  const [machines, setMachines] = useState<any[]>([]);
+  const [role, setRole] = useState<string>("free_user");
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchStatus = async () => {
+    setIsLoading(true);
+    try {
+      const [pgRes, machineRes] = await Promise.all([
+        fetch("/api/pg").then(res => res.json()),
+        fetch("/api/machines").then(res => res.json())
+      ]);
+
+      if (pgRes.success) setRole(pgRes.data.role);
+      if (machineRes.success) setMachines(machineRes.data);
+    } catch (err) {
+      toast.error("Failed to load machine data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
+  const handleStartMachine = (id: string) => {
+    toast.success(`Machine ${id} assigned!`, {
+      description: "You have 5 minutes to load your clothes.",
+    });
+    // Optimistic UI update
+    setMachines(prev => prev.map(m => m.id === id ? { ...m, status: "occupied" } : m));
+  };
+
+  const handleDeleteMachine = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this machine?")) return;
+    
+    try {
+      const res = await fetch(`/api/machines/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Machine deleted");
+        setMachines(prev => prev.filter(m => m.id !== id));
+      } else {
+        throw new Error(data.error?.message);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete machine");
+    }
+  };
+
+  const handleAddMachine = async () => {
+    try {
+      const res = await fetch("/api/machines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Washer ${machines.length + 1}`,
+          type: "washing_machine",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Machine added");
+        setMachines(prev => [...prev, data.data]);
+      } else {
+        throw new Error(data.error?.message);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add machine");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const isAdmin = role === "pg_admin";
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+    <div className="w-full">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Machines</h1>
-          <p className="text-white/50">Real-time status of all laundry machines.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Machine Access</h1>
+          <p className="text-muted-foreground mt-1">
+            {isAdmin ? "Manage and monitor your PG's machines." : "Select an available machine to begin."}
+          </p>
         </div>
         
-        <div className="flex p-1 bg-white/5 border border-white/10 rounded-xl w-fit">
-          {["all", "free", "in_use"].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`relative px-6 py-2 text-sm font-medium capitalize rounded-lg transition-colors ${
-                activeTab === tab ? "text-white" : "text-white/50 hover:text-white"
-              }`}
-            >
-              {activeTab === tab && (
-                <motion.div
-                  layoutId="machineTab"
-                  className="absolute inset-0 bg-white/10 rounded-lg"
-                  transition={{ type: "spring", stiffness: 300, damping: 24 }}
-                />
-              )}
-              <span className="relative z-10">{tab.replace("_", " ")}</span>
-            </button>
-          ))}
-        </div>
+        {isAdmin && (
+          <Button onClick={handleAddMachine} className="bg-primary/20 hover:bg-primary text-primary hover:text-white border border-primary/30 rounded-xl px-6 py-4 flex items-center gap-2">
+            <Plus className="w-5 h-5" /> Add Machine
+          </Button>
+        )}
       </div>
 
-      <motion.div 
-        variants={staggerContainer}
-        initial="hidden"
-        animate="visible"
-        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-      >
-        {mockMachines
-          .filter(m => activeTab === "all" || (activeTab === "free" && m.status === "free") || (activeTab === "in_use" && m.status !== "free" && m.status !== "maintenance"))
-          .map((machine) => (
-          <MachineCard key={machine.id} machine={machine} />
-        ))}
-      </motion.div>
-    </div>
-  );
-}
-
-function MachineCard({ machine }: { machine: any }) {
-  const statusColors: any = {
-    free: "from-emerald-500 to-emerald-400 border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.2)] text-emerald-400",
-    occupied: "from-rose-500 to-red-500 border-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.2)] text-rose-400",
-    grace_period: "from-amber-500 to-orange-400 border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.2)] text-amber-400",
-    maintenance: "from-white/20 to-white/10 border-white/20 shadow-none text-white/40",
-  };
-
-  const statusText {
-    free: "Available",
-    occupied: "In Use",
-    grace_period: "Please Collect",
-    maintenance: "Maintenance"
-  };
-
-  const colorConfig = statusColors[machine.status];
-
-  return (
-    <motion.div variants={fadeUp}>
-      <AnimatedCard className="overflow-hidden" glow={false}>
-        {/* Dynamic top bar */}
-        <div className={`h-2 w-full bg-gradient-to-r ${colorConfig.split(" ")[0]} ${colorConfig.split(" ")[1]}`} />
+      <Tabs defaultValue="all" className="w-full mb-8">
+        <TabsList>
+          <TabsTrigger value="all">All Machines ({machines.length})</TabsTrigger>
+          <TabsTrigger value="available">Available ({machines.filter(m => m.status === 'free').length})</TabsTrigger>
+          <TabsTrigger value="active">Active/Waiting ({machines.filter(m => ['occupied', 'grace_period'].includes(m.status)).length})</TabsTrigger>
+        </TabsList>
         
-        <div className="p-6 md:p-8 flex flex-col md:flex-row gap-8 items-center md:items-start justify-between relative">
-          
-          {/* Breathing BG effect for active machines */}
-          {machine.status === "occupied" && (
-            <div className="absolute top-1/2 left-1/4 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-rose-500/10 rounded-full blur-[80px] animate-pulse pointer-events-none" />
-          )}
+        <TabsContent value="all" className="mt-6">
+          <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {machines.map((machine, idx) => (
+              <motion.div key={machine.id} variants={fadeUp} custom={idx}>
+                <MachineCard
+                  id={machine.id}
+                  name={machine.name}
+                  status={machine.status}
+                  isAdmin={isAdmin}
+                  onAction={() => handleStartMachine(machine.id)}
+                  onDelete={() => handleDeleteMachine(machine.id)}
+                />
+              </motion.div>
+            ))}
+          </motion.div>
+        </TabsContent>
 
-          <div className="flex-1 w-full relative z-10 text-center md:text-left">
-            <div className="flex items-center justify-center md:justify-start gap-3 mb-2">
-              <h3 className="text-2xl font-bold tracking-tight">{machine.name}</h3>
-              {machine.status === "free" && <ShieldCheck className="w-5 h-5 text-emerald-400" />}
-            </div>
-            <p className="text-white/50">{machine.type}</p>
+        <TabsContent value="available" className="mt-6">
+           <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+             {machines.filter(m => m.status === 'free').map(machine => (
+                <MachineCard key={machine.id} {...machine} isAdmin={isAdmin} onAction={() => handleStartMachine(machine.id)} onDelete={() => handleDeleteMachine(machine.id)} />
+             ))}
+           </motion.div>
+        </TabsContent>
 
-            <div className="mt-8 flex flex-wrap gap-4 justify-center md:justify-start">
-              <div className={`px-4 py-2 rounded-xl bg-white/5 border border-white/10 ${colorConfig.split(" ").slice(-1)[0]} font-medium flex items-center gap-2`}>
-                <div className={`w-2 h-2 rounded-full bg-current ${machine.status !== 'maintenance' ? 'animate-pulse' : ''}`} />
-                {statusText[machine.status as keyof typeof statusText]}
-              </div>
-              
-              {machine.remaining && (
-                 <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 font-mono font-medium">
-                   {machine.remaining} mins left
-                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className="shrink-0 flex flex-col items-center gap-3 w-full md:w-auto z-10">
-            {machine.status === "free" ? (
-              <button className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-4 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-2xl font-bold hover:bg-emerald-500 hover:text-black hover:scale-105 transition-all shadow-[0_0_20px_rgba(16,185,129,0.2)]">
-                <QrCode className="w-5 h-5" /> Start Scan
-              </button>
-            ) : machine.status === "occupied" ? (
-               <div className="relative w-24 h-24 flex items-center justify-center">
-                 {/* CSS spinning ring */}
-                 <div className="absolute inset-0 rounded-full border-2 border-rose-500/20 border-t-rose-500 animate-spin" />
-                 <div className="text-2xl font-black font-mono text-rose-400">{machine.remaining}</div>
-               </div>
-            ) : machine.status === "grace_period" ? (
-               <div className="p-4 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                 <AlertTriangle className="w-8 h-8 animate-pulse" />
-               </div>
-            ) : null}
-          </div>
-          
-        </div>
-      </AnimatedCard>
-    </motion.div>
+        <TabsContent value="active" className="mt-6">
+           <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+             {machines.filter(m => ['occupied', 'grace_period'].includes(m.status)).map(machine => (
+                <MachineCard key={machine.id} {...machine} isAdmin={isAdmin} onDelete={() => handleDeleteMachine(machine.id)} />
+             ))}
+           </motion.div>
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }

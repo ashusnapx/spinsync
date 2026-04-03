@@ -2,7 +2,7 @@ import { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
-  description: "Rules and guidelines for using the SpinSync SaaS platform.",
+  description: "Rules and guidelines for using the DhobiQ SaaS platform.",
 };
 
 export default function TermsPage() {
@@ -14,11 +14,11 @@ export default function TermsPage() {
        <div className="space-y-10 text-white/70 font-light leading-relaxed prose prose-invert">
          <section>
            <h2 className="text-2xl font-semibold tracking-tight text-white mb-4">1. Acceptance of Terms</h2>
-           <p>By accessing or using SpinSync, you agree to be bound by these Terms of Service. All interactions with the platform are governed by these rules to ensure fairness across the queueing ecosystem.</p>
+           <p>By accessing or using DhobiQ, you agree to be bound by these Terms of Service. All interactions with the platform are governed by these rules to ensure fairness across the queueing ecosystem.</p>
          </section>
          <section>
            <h2 className="text-2xl font-semibold tracking-tight text-white mb-4">2. Subscription Services</h2>
-           <p>Premium priority passes are billed monthly. SpinSync reserves the right to modify priority multipliers, fairness-decay limits, or pricing. Subscriptions are non-refundable for partial months.</p>
+           <p>Premium priority passes are billed monthly. DhobiQ reserves the right to modify priority multipliers, fairness-decay limits, or pricing. Subscriptions are non-refundable for partial months.</p>
          </section>
          <section>
            <h2 className="text-2xl font-semibold tracking-tight text-white mb-4">3. Account Integrity</h2>

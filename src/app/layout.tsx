@@ -12,10 +12,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://spinsync.app"),
+  metadataBase: new URL("https://dhobiq.app"),
   title: {
-    default: "SpinSync — Smart Laundry Management for PGs",
-    template: "%s | SpinSync",
+    default: "DhobiQ — Smart Laundry Management for PGs",
+    template: "%s | DhobiQ",
   },
   description:
     "The intelligent laundry management platform for PGs and hostels. Real-time machine tracking, smart queues, QR access, and premium priority — all in one app.",
@@ -27,26 +27,26 @@ export const metadata: Metadata = {
     "smart queue",
     "SaaS",
   ],
-  authors: [{ name: "SpinSync" }],
+  authors: [{ name: "DhobiQ" }],
   openGraph: {
     type: "website",
     locale: "en_IN",
-    url: "https://spinsync.app",
-    siteName: "SpinSync",
-    title: "SpinSync — Smart Laundry Management",
+    url: "https://dhobiq.app",
+    siteName: "DhobiQ",
+    title: "DhobiQ — Smart Laundry Management",
     description: "Real-time machine tracking, smart queues, and QR access for PG laundry.",
     images: [
       {
         url: "/opengraph-image.png",
         width: 1200,
         height: 630,
-        alt: "SpinSync Smart Laundry Management",
+        alt: "DhobiQ Smart Laundry Management",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "SpinSync — Smart Laundry Management",
+    title: "DhobiQ — Smart Laundry Management",
     description: "Real-time machine tracking, smart queues, and QR access for PG laundry.",
     images: ["/twitter-image.png"],
   },
@@ -75,14 +75,20 @@ export const viewport: Viewport = {
   themeColor: "#0a0a0f",
 };
 
+import { ThemeProvider } from "@/components/theme-provider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={cn(inter.variable, "font-sans", geist.variable)}>
-      <body>{children}</body>
+    <html lang="en" suppressHydrationWarning className={cn(inter.variable, "font-sans", geist.variable)}>
+      <body>
+        <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem disableTransitionOnChange>
+          {children}
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

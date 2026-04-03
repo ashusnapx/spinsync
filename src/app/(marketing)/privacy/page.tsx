@@ -2,7 +2,7 @@ import { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
-  description: "SpinSync respects your privacy. Learn how we handle your data.",
+  description: "DhobiQ respects your privacy. Learn how we handle your data.",
 };
 
 export default function PrivacyPage() {

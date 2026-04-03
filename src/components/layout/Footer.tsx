@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 
 const TwitterIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className={className}>
@@ -23,10 +22,10 @@ const LinkedinIcon = ({ className }: { className?: string }) => (
 
 export function Footer() {
   return (
-    <footer className="relative mt-32 border-t border-white/[0.08] bg-black/40 backdrop-blur-3xl overflow-hidden">
+    <footer className="relative mt-32 border-t border-border bg-background/40 backdrop-blur-3xl overflow-hidden text-foreground">
       {/* Decorative Blur */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-px bg-gradient-to-r from-transparent via-violet-500/50 to-transparent blur-[2px]" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/4 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/4 h-px bg-gradient-to-r from-transparent via-primary to-transparent" />
 
       <div className="max-w-7xl mx-auto px-6 py-20 lg:py-24">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 lg:gap-8 mb-16">
@@ -34,22 +33,22 @@ export function Footer() {
           {/* Brand Col */}
           <div className="flex flex-col gap-4">
             <Link href="/" className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-violet-600 flex items-center justify-center text-black font-black text-sm">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-violet-600 flex items-center justify-center text-white font-black text-sm">
                 S
               </div>
-              <span className="text-lg font-bold tracking-tight">SpinSync</span>
+              <span className="text-lg font-bold tracking-tight">DhobiQ</span>
             </Link>
-            <p className="text-sm text-white/50 leading-relaxed font-light mt-2 max-w-xs">
+            <p className="text-sm text-muted-foreground leading-relaxed font-light mt-2 max-w-xs">
               Laundry, without the guesswork. The next generation of intelligence for PG and hostel machine coordination.
             </p>
             <div className="flex gap-4 mt-4">
-              <a href="#" className="text-white/40 hover:text-cyan-400 transition-colors duration-300">
+              <a href="#" className="text-muted-foreground/80 hover:text-primary transition-colors duration-300">
                 <TwitterIcon className="w-5 h-5" />
               </a>
-              <a href="#" className="text-white/40 hover:text-white transition-colors duration-300">
+              <a href="#" className="text-muted-foreground/80 hover:text-foreground transition-colors duration-300">
                 <GithubIcon className="w-5 h-5" />
               </a>
-              <a href="#" className="text-white/40 hover:text-violet-400 transition-colors duration-300">
+              <a href="#" className="text-muted-foreground/80 hover:text-violet-500 transition-colors duration-300">
                 <LinkedinIcon className="w-5 h-5" />
               </a>
             </div>
@@ -58,36 +57,36 @@ export function Footer() {
           {/* Links Cols */}
           <div>
             <h4 className="font-semibold mb-6 tracking-tight">Product</h4>
-            <ul className="flex flex-col gap-4 text-sm text-white/50 font-light">
-              <li><Link href="/features" className="hover:text-white transition-colors duration-300">Features</Link></li>
-              <li><Link href="/pricing" className="hover:text-white transition-colors duration-300">Pricing</Link></li>
-              <li><Link href="/auth/create-pg" className="hover:text-white transition-colors duration-300">Register PG</Link></li>
+            <ul className="flex flex-col gap-4 text-sm text-muted-foreground font-light">
+              <li><Link href="/features" className="hover:text-foreground transition-colors duration-300">Features</Link></li>
+              <li><Link href="/pricing" className="hover:text-foreground transition-colors duration-300">Pricing</Link></li>
+              <li><Link href="/auth/create-pg" className="hover:text-foreground transition-colors duration-300">Register PG</Link></li>
             </ul>
           </div>
 
           <div>
             <h4 className="font-semibold mb-6 tracking-tight">Company</h4>
-            <ul className="flex flex-col gap-4 text-sm text-white/50 font-light">
-              <li><Link href="/about" className="hover:text-white transition-colors duration-300">About Us</Link></li>
-              <li><Link href="/contact" className="hover:text-white transition-colors duration-300">Contact</Link></li>
-              <li><Link href="/blog" className="hover:text-white transition-colors duration-300">Blog</Link></li>
+            <ul className="flex flex-col gap-4 text-sm text-muted-foreground font-light">
+              <li><Link href="/about" className="hover:text-foreground transition-colors duration-300">About Us</Link></li>
+              <li><Link href="/contact" className="hover:text-foreground transition-colors duration-300">Contact</Link></li>
+              <li><Link href="/blog" className="hover:text-foreground transition-colors duration-300">Blog</Link></li>
             </ul>
           </div>
 
           <div>
             <h4 className="font-semibold mb-6 tracking-tight">Legal</h4>
-            <ul className="flex flex-col gap-4 text-sm text-white/50 font-light">
-              <li><Link href="/privacy" className="hover:text-white transition-colors duration-300">Privacy Policy</Link></li>
-              <li><Link href="/terms" className="hover:text-white transition-colors duration-300">Terms of Service</Link></li>
+            <ul className="flex flex-col gap-4 text-sm text-muted-foreground font-light">
+              <li><Link href="/privacy" className="hover:text-foreground transition-colors duration-300">Privacy Policy</Link></li>
+              <li><Link href="/terms" className="hover:text-foreground transition-colors duration-300">Terms of Service</Link></li>
             </ul>
           </div>
 
         </div>
 
-        <div className="pt-8 border-t border-white/[0.04] flex flex-col md:flex-row items-center font-light justify-between text-xs text-white/40">
-          <p>© {new Date().getFullYear()} SpinSync Inc. All rights reserved.</p>
+        <div className="pt-8 border-t border-border/50 flex flex-col md:flex-row items-center font-light justify-between text-xs text-muted-foreground/60">
+          <p>© {new Date().getFullYear()} DhobiQ Inc. All rights reserved.</p>
           <div className="flex gap-6 mt-4 md:mt-0">
-             <span>System Status: <span className="text-emerald-400 font-medium">All Systems Operational</span></span>
+             <span>System Status: <span className="text-emerald-500 font-medium tracking-wide">All Systems Operational</span></span>
           </div>
         </div>
       </div>

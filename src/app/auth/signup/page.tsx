@@ -4,113 +4,127 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { signUp } from "@/lib/auth-client";
-import { Loader2, Mail, Lock, User, KeySquare, MapPin, Building } from "lucide-react";
-import { toast } from "sonner"; // Assuming sonner or just standard ui handling, will use local state for now
+import { createSupabaseClient } from "@/lib/supabase/client";
+import { Loader2, Mail, Lock, User, KeySquare, MapPin, Building, ArrowRight } from "lucide-react";
+import { useForm } from "@tanstack/react-form";
+import { zodValidator } from "@tanstack/zod-form-adapter";
+import { FormInput } from "@/components/forms/FormInput";
+import { signupSchema, signupStep1Schema } from "@/forms/auth/signup.schema";
+import { AuthSplitLayout } from "@/components/layout/AuthSplitLayout";
+import { SignupVector } from "@/components/illustrations/SignupVector";
 
 export default function SignupPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const supabase = createSupabaseClient();
 
-  // Form State
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [pgCode, setPgCode] = useState("");
-  const [roomNumber, setRoomNumber] = useState("");
+  const form = useForm({
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      pgCode: "",
+      roomNumber: "",
+    },
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    validatorAdapter: zodValidator(),
+    validators: {
+      onChange: signupSchema,
+    },
+    onSubmit: async ({ value }) => {
+      setSubmitError("");
+      try {
+        if (!navigator.geolocation) {
+          throw new Error("Geolocation is not supported by your browser");
+        }
 
-  const handleNext = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !email || !password) {
-      setError("Please fill all core fields.");
-      return;
-    }
-    setError("");
-    setStep(2);
-  };
+        const getPosition = () => new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject);
+        });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pgCode || !roomNumber) {
-      setError("PG Code and Room number are required.");
-      return;
-    }
+        const position = await getPosition();
+        const fingerprint = btoa(navigator.userAgent + window.screen.width + "_" + window.screen.height).substring(0, 32);
 
-    setIsLoading(true);
-    setError("");
+        const { error: authError } = await supabase.auth.signUp({
+          email: value.email,
+          password: value.password,
+          options: {
+            data: {
+              name: value.name,
+            }
+          }
+        });
 
-    try {
-      // 1. Get GPS coordinates
-      if (!navigator.geolocation) {
-        throw new Error("Geolocation is not supported by your browser");
+        if (authError) {
+          throw new Error(authError.message);
+        }
+
+        const pgRes = await fetch("/api/pg/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pgCode: value.pgCode,
+            roomNumber: value.roomNumber,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            gpsAccuracy: position.coords.accuracy,
+            fingerprint,
+          }),
+        });
+
+        const pgData = await pgRes.json();
+        
+        if (!pgRes.ok || !pgData.success) {
+          throw new Error(pgData.error?.message || "Location verification failed");
+        }
+
+        router.push("/dashboard");
+
+      } catch (err: any) {
+        setSubmitError(err.message || "An unexpected error occurred.");
       }
+    },
+  });
 
-      const getPosition = () => new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
-      });
+  const handleNext = async () => {
+    // Manually trigger validation checks for step 1 schema properties
+    const isValid = await signupStep1Schema.safeParseAsync({
+      name: form.getFieldValue("name"),
+      email: form.getFieldValue("email"),
+      password: form.getFieldValue("password"),
+    });
 
-      const position = await getPosition();
-      
-      // 2. Client fingerprint (basic mock for demo, ideally use a library like FingerprintJS)
-      const fingerprint = btoa(navigator.userAgent + window.screen.width + "_" + window.screen.height).substring(0, 32);
-
-      // 3. Register user with better-auth
-      const authRes = await signUp.email({
-        email,
-        password,
-        name,
-      });
-
-      if (authRes.error) {
-        throw new Error(authRes.error.message);
-      }
-
-      // 4. Join PG via our custom API
-      const pgRes = await fetch("/api/pg/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pgCode,
-          roomNumber,
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          gpsAccuracy: position.coords.accuracy,
-          fingerprint,
-        }),
-      });
-
-      const pgData = await pgRes.json();
-      
-      if (!pgRes.ok || !pgData.success) {
-        throw new Error(pgData.error?.message || "Location verification failed");
-      }
-
-      router.push("/dashboard");
-
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
-    } finally {
-      setIsLoading(false);
+    if (isValid.success) {
+      setStep(2);
+    } else {
+      // Force trigger validation visuals on fields
+      form.validateAllFields("change");
     }
   };
 
   return (
-    <>
-      <div className="mb-10">
-        <h2 className="text-3xl font-bold tracking-tight mb-2">Create Account</h2>
-        <p className="text-white/50 text-sm">Join SpinSync and never wait for laundry again.</p>
+    <AuthSplitLayout
+      title="Create Your Account."
+      subtitle="Join DhobiQ and establish a seamless link to your building's facilities."
+      vectorNode={<SignupVector />}
+    >
+      <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 mb-6 hidden data-[show=true]:block" data-show={!!submitError}>
+        <p className="text-rose-400 text-sm font-medium">{submitError}</p>
       </div>
 
-      <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 mb-6 hidden data-[show=true]:block" data-show={!!error}>
-        <p className="text-rose-400 text-sm">{error}</p>
-      </div>
-
-      <motion.form 
-        onSubmit={step === 1 ? handleNext : handleSubmit}
+      <form 
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (step === 1) {
+            handleNext();
+          } else {
+            form.handleSubmit();
+          }
+        }}
         className="space-y-5"
-        layout
       >
         {step === 1 ? (
           <motion.div
@@ -120,63 +134,30 @@ export default function SignupPage() {
             exit={{ opacity: 0, x: 20 }}
             className="space-y-5"
           >
-            <div className="input-group">
-              <label className="input-label">Full Name</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-5 w-5 text-white/30" />
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="input pl-10"
-                  placeholder="John Doe"
-                />
-              </div>
-            </div>
+            <form.Field name="name">
+              {(field) => (
+                <FormInput field={field} label="Full Name" icon={User} placeholder="John Doe" autoComplete="name" />
+              )}
+            </form.Field>
 
-            <div className="input-group">
-              <label className="input-label">Email Address</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-white/30" />
-                </div>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="input pl-10"
-                  placeholder="you@example.com"
-                />
-              </div>
-            </div>
+            <form.Field name="email">
+              {(field) => (
+                <FormInput field={field} label="Email Address" icon={Mail} type="email" placeholder="you@example.com" autoComplete="email" />
+              )}
+            </form.Field>
 
-            <div className="input-group">
-              <label className="input-label">Password</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-white/30" />
-                </div>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input pl-10"
-                  placeholder="••••••••"
-                  min={8}
-                />
-              </div>
-            </div>
+            <form.Field name="password">
+              {(field) => (
+                <FormInput field={field} label="Password" icon={Lock} type="password" placeholder="••••••••" autoComplete="new-password" />
+              )}
+            </form.Field>
 
             <button
-              type="submit"
-              className="w-full btn btn-primary py-3 rounded-xl mt-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:shadow-[0_0_20px_rgba(0,212,255,0.3)] transition-all"
+              type="button"
+              onClick={handleNext}
+              className="w-full btn btn-primary py-3 rounded-xl mt-4 bg-gradient-to-r from-primary to-violet-600 hover:shadow-[0_0_20px_rgba(var(--primary),0.3)] transition-all font-semibold flex justify-center items-center"
             >
-              Continue <ArrowRight className="w-4 h-4 ml-1" />
+              Continue <ArrowRight className="w-4 h-4 ml-2" />
             </button>
           </motion.div>
         ) : (
@@ -186,44 +167,31 @@ export default function SignupPage() {
             animate={{ opacity: 1, x: 0 }}
             className="space-y-5"
           >
-            <div className="input-group">
-              <label className="input-label">PG Code</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <KeySquare className="h-5 w-5 text-white/30" />
+            <form.Field name="pgCode">
+              {(field) => (
+                <div className="input-group">
+                  <FormInput 
+                    field={field} 
+                    label="PG Join Code" 
+                    icon={KeySquare} 
+                    placeholder="123456" 
+                    maxLength={6}
+                    inputMode="numeric"
+                    className="font-mono tracking-[0.3em] text-center text-lg"
+                  />
+                  <p className="text-xs text-muted-foreground/60 mt-1">Ask your PG admin for this 6-digit code.</p>
                 </div>
-                <input
-                  type="text"
-                  required
-                  value={pgCode}
-                  onChange={(e) => setPgCode(e.target.value.toUpperCase())}
-                  className="input pl-10 font-mono tracking-widest uppercase"
-                  placeholder="XYZ123"
-                  maxLength={6}
-                />
-              </div>
-              <p className="text-xs text-white/40 mt-1">Ask your PG admin for this 6-character code.</p>
-            </div>
+              )}
+            </form.Field>
 
-            <div className="input-group">
-              <label className="input-label">Room Number</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Building className="h-5 w-5 text-white/30" />
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={roomNumber}
-                  onChange={(e) => setRoomNumber(e.target.value)}
-                  className="input pl-10"
-                  placeholder="e.g. 101, A2, etc."
-                />
-              </div>
-            </div>
+            <form.Field name="roomNumber">
+              {(field) => (
+                <FormInput field={field} label="Room Number" icon={Building} placeholder="e.g. 101, A2, etc." />
+              )}
+            </form.Field>
 
-            <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-xl p-4 flex gap-3 text-sm text-cyan-100">
-              <MapPin className="w-5 h-5 text-cyan-400 shrink-0" />
+            <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 flex gap-3 text-sm text-primary">
+              <MapPin className="w-5 h-5 text-primary shrink-0" />
               <p>We will verify your device location to ensure you are currently at the PG premises.</p>
             </div>
 
@@ -231,30 +199,33 @@ export default function SignupPage() {
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="w-1/3 btn btn-secondary py-3 rounded-xl"
+                className="w-1/3 btn btn-secondary py-3 rounded-xl font-medium"
               >
                 Back
               </button>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-2/3 btn btn-primary py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 shadow-[0_0_20px_rgba(0,212,255,0.3)] disabled:opacity-50 flex items-center justify-center"
-              >
-                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verify & Join PG"}
-              </button>
+              
+              <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
+                {([canSubmit, isSubmitting]) => (
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-2/3 btn btn-primary py-3 rounded-xl bg-gradient-to-r from-primary to-violet-600 shadow-[0_0_20px_rgba(var(--primary),0.3)] disabled:opacity-50 flex items-center justify-center font-semibold"
+                  >
+                    {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verify & Join PG"}
+                  </button>
+                )}
+              </form.Subscribe>
             </div>
           </motion.div>
         )}
-      </motion.form>
+      </form>
 
-      <div className="mt-8 text-center text-sm text-white/50">
+      <div className="mt-8 text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/auth/login" className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
+        <Link href="/auth/login" className="text-primary hover:text-primary/80 font-medium transition-colors">
           Log in
         </Link>
       </div>
-    </>
+    </AuthSplitLayout>
   );
 }
-
-import { ArrowRight } from "lucide-react";

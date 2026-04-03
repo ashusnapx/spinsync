@@ -19,7 +19,7 @@ export default function AboutPage() {
           <span className="gradient-text-heading">the laundry room chaos.</span>
         </motion.h1>
         <motion.p variants={fadeUp} className="text-lg md:text-xl text-white/50 font-light max-w-2xl mx-auto leading-relaxed">
-          SpinSync was born out of frustration. We were tired of lugging baskets down 4 flights of stairs, only to find all machines full and broken timers.
+          DhobiQ was born out of frustration. We were tired of lugging baskets down 4 flights of stairs, only to find all machines full and broken timers.
         </motion.p>
       </motion.div>
 
@@ -28,7 +28,7 @@ export default function AboutPage() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
-        className="glass-elevated p-10 md:p-16 text-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] relative overflow-hidden"
+        className="bg-card border border-border rounded-3xl shadow-sm p-10 md:p-16 text-center relative overflow-hidden transition-transform duration-300 hover:-translate-y-1"
       >
         <div className="absolute top-0 right-0 w-96 h-96 bg-violet-600/10 blur-[100px] pointer-events-none" />
         

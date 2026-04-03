@@ -3,11 +3,10 @@ import { db } from "@/db";
 import { pgLocations, userProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
-import { computeTrustScore, recordVerification } from "@/lib/geo-utils";
+import { computeTrustScore, recordVerification } from "@/lib/geo-server-utils";
 import { extractDeviceInfo, verifyDevice } from "@/lib/device-identity";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { requireAuth } from "@/lib/guard";
 
 // ═══════════════════════════════════════════
 // POST /api/pg/join — Join a PG by code + location
@@ -15,6 +14,9 @@ import { headers } from "next/headers";
 
 export async function POST(request: NextRequest) {
   try {
+    const authCtx = await requireAuth(request);
+    const userId = authCtx.user.id;
+
     const body = await request.json();
     const { pgCode, roomNumber, latitude, longitude, gpsAccuracy, fingerprint } = body;
 
@@ -26,17 +28,6 @@ export async function POST(request: NextRequest) {
     if (!fingerprint) {
       return errors.validation("Device fingerprint is required");
     }
-
-    // ── Get authenticated user ──
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user) {
-      return errors.unauthorized();
-    }
-
-    const userId = session.user.id;
 
     // ── Look up PG by code ──
     const [pgLocation] = await db
@@ -94,20 +85,6 @@ export async function POST(request: NextRequest) {
 
     if (!deviceCheck.trusted) {
       return errors.deviceUntrusted(deviceCheck.reason);
-    }
-
-    // ── Add user to organization ──
-    try {
-      await auth.api.addMember({
-        headers: await headers(),
-        body: {
-          organizationId: pgLocation.orgId,
-          userId,
-          role: "member", // free_user equivalent
-        },
-      });
-    } catch {
-      // User may already be a member — that's ok
     }
 
     // ── Create/update user profile ──

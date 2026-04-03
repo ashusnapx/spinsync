@@ -25,7 +25,7 @@ export default function PricingPage() {
           Become <span className="text-cyan-400">undeniable.</span>
         </motion.h1>
         <motion.p variants={fadeUp} className="text-lg md:text-xl text-white/50 font-normal max-w-2xl mx-auto leading-relaxed">
-          SpinSync fundamentally changes hostelling. Upgrade to Pro when you're tired of waiting in line.
+          DhobiQ fundamentally changes hostelling. Upgrade to Pro when you're tired of waiting in line.
         </motion.p>
       </motion.div>
 
@@ -33,25 +33,25 @@ export default function PricingPage() {
         
         {/* Free Plan */}
         <motion.div variants={fadeUp} initial="hidden" animate="visible" custom={1}>
-          <div className="glass p-10 flex flex-col h-full rounded-3xl border-white/[0.04]">
+          <div className="bg-card p-10 flex flex-col h-full rounded-3xl border border-border shadow-sm transition-transform duration-300 hover:-translate-y-1">
             <div className="mb-8">
-              <h3 className="text-xl font-bold mb-2 text-white/80">Basic Sync</h3>
+              <h3 className="text-xl font-bold mb-2 text-card-foreground">Basic Sync</h3>
               <div className="flex items-baseline gap-2 mb-4">
                 <span className="text-5xl font-black">₹0</span>
-                <span className="text-white/50 font-medium">/forever</span>
+                <span className="text-muted-foreground font-medium">/forever</span>
               </div>
-              <p className="text-white/50 font-light text-sm">Everything you need to view machines and join standard queues.</p>
+              <p className="text-muted-foreground font-light text-sm">Everything you need to view machines and join standard queues.</p>
             </div>
 
             <ul className="flex-1 space-y-4 mb-10">
               {["Real-time status tracking", "Standard queue limits", "Community PG chat", "Email notifications"].map((feature) => (
-                <li key={feature} className="flex items-center gap-3 text-white/80 text-sm">
+                <li key={feature} className="flex items-center gap-3 text-card-foreground text-sm">
                   <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" /> {feature}
                 </li>
               ))}
             </ul>
 
-            <button className="w-full py-4 rounded-xl bg-white/10 hover:bg-white/20 font-semibold transition-colors duration-300">
+            <button className="w-full py-4 rounded-xl bg-secondary text-secondary-foreground hover:bg-secondary/80 font-semibold transition-colors duration-300">
               Get Started
             </button>
           </div>
@@ -59,7 +59,7 @@ export default function PricingPage() {
 
         {/* Pro Plan */}
         <motion.div variants={scaleIn} initial="hidden" animate="visible" custom={2}>
-          <div className="glass p-10 flex flex-col h-full rounded-[28px] relative overflow-hidden ring-1 ring-cyan-500/50 shadow-[0_0_40px_rgba(0,212,255,0.1)]">
+          <div className="bg-card p-10 flex flex-col h-full rounded-3xl relative overflow-hidden border border-primary/50 shadow-[0_0_30px_rgba(99,102,241,0.1)] transition-transform duration-300 hover:-translate-y-1">
             
             {/* Pro Glows */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-500/20 blur-[80px] -translate-y-1/2 translate-x-1/2" />
@@ -70,7 +70,7 @@ export default function PricingPage() {
 
             <div className="mb-8 mt-4 relative z-10">
               <h3 className="text-xl font-bold mb-2 flex items-center gap-2 text-cyan-400">
-                <Zap className="w-5 h-5" /> SpinSync Pro
+                <Zap className="w-5 h-5" /> DhobiQ Pro
               </h3>
               <div className="flex items-baseline gap-2 mb-4">
                 <span className="text-6xl font-black">₹299</span>

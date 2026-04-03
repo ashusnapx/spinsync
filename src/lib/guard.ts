@@ -1,6 +1,8 @@
-import { auth } from "./auth";
-import { headers } from "next/headers";
+import { createSupabaseServerClient } from "./supabase/server";
 import { errors } from "./api-response";
+import { db } from "@/db";
+import { userProfiles, pgLocations } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 // ═══════════════════════════════════════════
 // GUARD UTILITIES — AUTH + RBAC + ORG CHECKS
@@ -9,43 +11,32 @@ import { errors } from "./api-response";
 export interface AuthContext {
   user: {
     id: string;
-    name: string;
     email: string;
-    image?: string | null;
-  };
-  session: {
-    id: string;
-    userId: string;
+    name: string;
   };
 }
 
 export interface OrgContext extends AuthContext {
   orgId: string;
-  orgRole: string; // "pg_admin" | "premium_user" | "free_user" | "owner" | "member"
+  orgRole: string; // "pg_admin" | "free_user" | "premium_user"
 }
 
 /**
  * Require authenticated user. Returns AuthContext or throws NextResponse error.
  */
 export async function requireAuth(request: Request): Promise<AuthContext> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session || !session.user) {
+  if (!user) {
     throw errors.unauthorized();
   }
 
   return {
     user: {
-      id: session.user.id,
-      name: session.user.name,
-      email: session.user.email,
-      image: session.user.image,
-    },
-    session: {
-      id: session.session.id,
-      userId: session.session.userId,
+      id: user.id,
+      email: user.email!,
+      name: user.user_metadata?.name || user.email?.split('@')[0] || "User",
     },
   };
 }
@@ -59,37 +50,36 @@ export async function requireOrganization(
 ): Promise<OrgContext> {
   const authCtx = await requireAuth(request);
 
-  // Get the active organization from the session
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  // Check if user is a PG admin manually mapping their id as orgId from pg_create
+  const [adminPg] = await db
+    .select()
+    .from(pgLocations)
+    .where(eq(pgLocations.orgId, authCtx.user.id))
+    .limit(1);
 
-  const activeOrg = session?.session
-    ? (session.session as Record<string, unknown>).activeOrganizationId
-    : null;
-
-  if (!activeOrg) {
-    throw errors.forbidden("No active organization. Please join a PG first.");
+  if (adminPg) {
+    return {
+      ...authCtx,
+      orgId: adminPg.orgId,
+      orgRole: "pg_admin",
+    };
   }
 
-  // Get the user's role in the organization
-  const orgSession = await auth.api.getFullOrganization({
-    headers: await headers(),
-    query: { organizationId: activeOrg as string },
-  });
+  // Get the active organization from userProfiles
+  const [profile] = await db
+    .select()
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, authCtx.user.id))
+    .limit(1);
 
-  const member = orgSession?.members?.find(
-    (m: { userId: string }) => m.userId === authCtx.user.id
-  );
-
-  if (!member) {
-    throw errors.forbidden("You are not a member of this organization.");
+  if (!profile) {
+    throw errors.forbidden("No active organization. Please join a PG first.");
   }
 
   return {
     ...authCtx,
-    orgId: activeOrg as string,
-    orgRole: (member as Record<string, unknown>).role as string,
+    orgId: profile.orgId,
+    orgRole: profile.subscriptionStatus === "premium" ? "premium_user" : "free_user",
   };
 }
 
@@ -102,8 +92,8 @@ export async function requireRole(
 ): Promise<OrgContext> {
   const ctx = await requireOrganization(request);
 
-  // "owner" always has access (this is the org creator / pg_admin)
-  if (ctx.orgRole === "owner" || allowedRoles.includes(ctx.orgRole)) {
+  // "pg_admin" always has maximal access
+  if (ctx.orgRole === "pg_admin" || allowedRoles.includes(ctx.orgRole)) {
     return ctx;
   }
 

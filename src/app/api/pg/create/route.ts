@@ -1,12 +1,9 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { pgLocations } from "@/db/schema";
+import { pgLocations, machines } from "@/db/schema";
 import { success, errors } from "@/lib/api-response";
 import { requireAuth } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-import { v4 as uuidv4 } from "uuid";
 
 // ═══════════════════════════════════════════
 // POST /api/pg/create — Create a new PG (admin flow)
@@ -16,7 +13,7 @@ export async function POST(request: NextRequest) {
   try {
     const authCtx = await requireAuth(request);
     const body = await request.json();
-    const { name, address, latitude, longitude } = body;
+    const { name, address, latitude, longitude, machineCount = 0 } = body;
 
     // ── Validate input ──
     if (!name || !address || latitude == null || longitude == null) {
@@ -27,55 +24,77 @@ export async function POST(request: NextRequest) {
       return errors.validation("PG name must be between 3 and 100 characters");
     }
 
-    // ── Generate unique PG code ──
-    const pgCode = generatePgCode(name);
-
-    // ── Create Organization via better-auth ──
-    const orgResult = await auth.api.createOrganization({
-      headers: await headers(),
-      body: {
-        name: name,
-        slug: pgCode.toLowerCase(),
-      },
-    });
-
-    if (!orgResult) {
-      return errors.internal("Failed to create organization");
+    const count = Number(machineCount);
+    if (isNaN(count) || count < 0 || count > 50) {
+      return errors.validation("machineCount must be between 0 and 50");
     }
 
-    const orgId = orgResult.id;
+    // ── Generate unique PG code ──
+    let pgCode = generatePgCode();
+    
+    // Simple collision retry (max 3 attempts)
+    for (let i = 0; i < 3; i++) {
+      const [existing] = await db
+        .select()
+        .from(pgLocations)
+        .where(eq(pgLocations.code, pgCode))
+        .limit(1);
+      if (!existing) break;
+      pgCode = generatePgCode();
+    }
 
-    // ── Store PG location ──
-    const [pgLocation] = await db
-      .insert(pgLocations)
-      .values({
-        name,
-        code: pgCode,
-        address,
-        latitude,
-        longitude,
-        orgId,
-      })
-      .returning();
+    // ── Store PG location + Machines in Transaction ──
+    const orgId = authCtx.user.id;
+
+    const result = await db.transaction(async (tx) => {
+      const [pgLoc] = await tx
+        .insert(pgLocations)
+        .values({
+          name,
+          code: pgCode,
+          address,
+          latitude,
+          longitude,
+          orgId,
+          machineCount: count,
+        })
+        .returning();
+
+      if (count > 0) {
+        const machinesToInsert = Array.from({ length: count }, (_, i) => ({
+          name: `Washer ${i + 1}`,
+          type: "washing_machine" as const,
+          status: "free" as const,
+          orgId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }));
+
+        await tx.insert(machines).values(machinesToInsert);
+      }
+
+      return pgLoc;
+    });
 
     // ── Audit log ──
     await audit({
       userId: authCtx.user.id,
       action: "pg.created",
       resource: "pg_location",
-      resourceId: pgLocation.id,
-      metadata: { name, pgCode, address, latitude, longitude },
+      resourceId: result.id,
+      metadata: { name, pgCode, address, machineCount: count },
       ipAddress: getIpAddress(request),
       userAgent: getUserAgent(request),
     });
 
     return success(
       {
-        id: pgLocation.id,
-        name: pgLocation.name,
-        code: pgLocation.code,
+        id: result.id,
+        name: result.name,
+        code: result.code,
         orgId,
-        address: pgLocation.address,
+        address: result.address,
+        machineCount: count,
       },
       201
     );
@@ -87,15 +106,10 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Generate a unique 6-character PG code from the name.
- * Format: first 3 letters of name (uppercase) + 3 random digits
+ * Generate a random 6-digit numeric code.
  */
-function generatePgCode(name: string): string {
-  const prefix = name
-    .replace(/[^a-zA-Z]/g, "")
-    .slice(0, 3)
-    .toUpperCase()
-    .padEnd(3, "X");
-  const suffix = Math.floor(100 + Math.random() * 900).toString();
-  return `${prefix}${suffix}`;
+function generatePgCode(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
+
+import { eq } from "drizzle-orm";

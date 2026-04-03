@@ -25,6 +25,8 @@ export type AuditAction =
   | "machine.grace_period"
   | "machine.locked"
   | "machine.maintenance"
+  | "machine.deleted"
+  | "machine.updated"
   | "machine.heartbeat_missed"
   | "machine.auto_ended"
   | "machine.qr_scanned"

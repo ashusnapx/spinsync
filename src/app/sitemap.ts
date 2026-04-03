@@ -2,7 +2,7 @@ import { MetadataRoute } from 'next';
 
 // In a real application, you might fetch dynamic routes (like blog posts or specific public pages) from a database here.
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://spinsync.app';
+  const baseUrl = 'https://dhobiq.app';
 
   return [
     {
