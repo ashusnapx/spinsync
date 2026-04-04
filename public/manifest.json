@@ -1,0 +1,53 @@
+{
+  "id": "com.dhobiq.app",
+  "name": "DhobiQ - Smart PG & Laundry Management",
+  "short_name": "DhobiQ",
+  "description": "The ultimate platform for automating PG operations and smart washing machine management. Seamless onboarding, join codes, and automated provisioning.",
+  "dir": "ltr",
+  "lang": "en-US",
+  "start_url": "/?utm_source=pwa",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#0F172A",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Join a PG",
+      "short_name": "Join PG",
+      "description": "Enter your 6-digit join code",
+      "url": "/join?utm_source=pwa_shortcut",
+      "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Manage Machines",
+      "short_name": "Machines",
+      "description": "View and provision washing machines",
+      "url": "/dashboard/machines?utm_source=pwa_shortcut",
+      "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

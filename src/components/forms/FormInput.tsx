@@ -1,8 +1,10 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Eye, EyeOff } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-interface FormInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface FormInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   field: any;
   label?: string;
@@ -30,11 +32,11 @@ export function FormInput({
   const inputType = isPassword ? (showPassword ? "text" : "password") : type;
 
   return (
-    <div className={cn("input-group", className)}>
+    <div className={cn("space-y-2", className)}>
       {label && (
-        <label className="input-label" htmlFor={id || field.name}>
+        <Label htmlFor={id || field.name}>
           {label}
-        </label>
+        </Label>
       )}
       <div className="relative">
         {Icon && (
@@ -42,7 +44,7 @@ export function FormInput({
             <Icon className="h-5 w-5 text-muted-foreground/60" />
           </div>
         )}
-        <input
+        <Input
           id={id || field.name}
           type={inputType}
           name={field.name}
@@ -51,10 +53,9 @@ export function FormInput({
           onChange={(e) => field.handleChange(e.target.value)}
           aria-invalid={isInvalid}
           className={cn(
-            "input", 
-            Icon ? "pl-10" : "", 
-            isPassword ? "pr-10" : "",
-            isInvalid && "border-rose-500/50 focus:border-rose-500"
+            Icon && "pl-10", 
+            isPassword && "pr-10",
+            isInvalid && "border-rose-500/50 focus-visible:ring-rose-500 data-[state=invalid]:border-rose-500"
           )}
           placeholder={placeholder}
           {...props}
@@ -75,7 +76,7 @@ export function FormInput({
       </div>
       {isInvalid && (
         <p className="text-xs text-rose-400 font-medium mt-1.5 flex items-center gap-1">
-          {field.state.meta.errors.join(", ")}
+          {field.state.meta.errors.map((err: unknown) => typeof err === "object" && err !== null && "message" in err ? String(err.message) : String(err)).join(", ")}
         </p>
       )}
     </div>

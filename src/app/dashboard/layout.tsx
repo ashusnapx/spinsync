@@ -8,9 +8,10 @@ import { createSupabaseClient } from "@/lib/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { 
   Menu, X, Home, WashingMachine, ListChecks, 
-  MessageSquare, UserCircle, LogOut, Loader2 
+  MessageSquare, UserCircle, LogOut, Loader2, Globe
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import DashboardLoading from "./loading";
 
 // Dummy PG Name for preview, in real app fetch via org
 const navLinks = [
@@ -27,17 +28,38 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isPending, setIsPending] = useState(true);
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pgName, setPgName] = useState<string>("Loading PG...");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session?.user?.id) {
+        supabase
+          .from('pg_locations')
+          .select('name')
+          .eq('org_id', session.user.id)
+          .single()
+          .then(({ data }) => {
+            if (data?.name) setPgName(data.name);
+            else setPgName("Setup Pending");
+          });
+      }
       setIsPending(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+      if (session?.user?.id) {
+        supabase
+          .from('pg_locations')
+          .select('name')
+          .eq('org_id', session.user.id)
+          .single()
+          .then(({ data }) => {
+            if (data?.name) setPgName(data.name);
+          });
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -51,11 +73,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [session, isPending]);
 
   if (isPending) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-      </div>
-    );
+    return <DashboardLoading />;
   }
 
   if (!session) return null;
@@ -104,8 +122,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-violet-600 flex items-center justify-center text-primary-foreground font-black text-xl shadow-[0_0_20px_rgba(var(--primary),0.2)]">D</div>
             <div>
-              <div className="font-bold tracking-tight text-lg text-foreground">DhobiQ</div>
-              <div className="text-xs text-primary font-medium">Sunny Meadows PG</div>
+              <div className="font-bold tracking-tight text-lg text-foreground truncate max-w-[180px]">DhobiQ</div>
+              <div className="text-xs text-primary font-medium truncate max-w-[180px]">{pgName}</div>
             </div>
           </Link>
         </div>
@@ -137,7 +155,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
-        <div className="p-4 border-t border-border mt-auto">
+        <div className="p-4 border-t border-border mt-auto space-y-2">
+          <Link
+            href="/"
+            className="flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors w-full"
+          >
+            <Globe className="w-5 h-5" />
+            Back to Website
+          </Link>
           <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary mb-2">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-violet-500 to-orange-400 shrink-0" />
             <div className="min-w-0">

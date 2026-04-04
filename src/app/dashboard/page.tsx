@@ -1,11 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
+import type { ComponentType } from "react";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
 import { fadeUp, staggerContainer } from "@/components/ui/Animations";
 import { Activity, Clock, BarChart3, ArrowUpRight, Zap, Copy, Check, Info } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { TenantManagement } from "@/components/dashboard/TenantManagement";
 
 interface PgData {
   id: string;
@@ -13,6 +15,7 @@ interface PgData {
   code: string;
   address: string;
   machineCount: number;
+  tenantCount: number;
   role: "pg_admin" | "free_user" | "premium_user";
 }
 
@@ -59,7 +62,7 @@ export default function DashboardOverview() {
                    <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
                      Share Join Code
                    </h3>
-                   <p className="text-sm text-white/50">Tenants need this 6-digit code to join your DhobiQ club.</p>
+                   <p className="text-sm text-white/50">Tenants need this 6-character code to join your DhobiQ club.</p>
                  </div>
                  
                  <div className="flex items-center gap-3">
@@ -88,10 +91,23 @@ export default function DashboardOverview() {
         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
       >
         <StatCard title="Active Machines" value={isLoading ? "..." : (pgData?.machineCount || "0")} total={pgData?.machineCount} icon={Activity} color="cyan" trend="+2 since yesterday" glow />
-        <StatCard title="Queue Length" value="12" icon={BarChart3} color="violet" trend="Peak hours right now" />
+        <StatCard title={pgData?.role === "pg_admin" ? "Tenants" : "Queue Length"} value={pgData?.role === "pg_admin" ? (isLoading ? "..." : (pgData?.tenantCount || "0")) : "12"} icon={BarChart3} color="violet" trend={pgData?.role === "pg_admin" ? "Residents mapped to your PG" : "Peak hours right now"} />
         <StatCard title="Avg Wait Time" value="40m" icon={Clock} color="amber" trend="-5m vs last week" />
         <StatCard title="Your Points" value="1,250" icon={Zap} color="emerald" trend="Top 5% in PG (Rank #3)" glow />
       </motion.div>
+
+      {pgData?.role === "pg_admin" && pgData?.code && (
+        <TenantManagement
+          pgCode={pgData.code}
+          pgName={pgData.name}
+          initialTenantCount={pgData.tenantCount}
+          onTenantCountChange={(tenantCount) =>
+            setPgData((current) =>
+              current ? { ...current, tenantCount } : current
+            )
+          }
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-6">
         <motion.div variants={fadeUp} className="lg:col-span-2">
@@ -155,14 +171,14 @@ interface StatCardProps {
   title: string;
   value: string | number;
   total?: number;
-  icon: React.ElementType;
+  icon: ComponentType<{ className?: string }>;
   color: "cyan" | "violet" | "amber" | "emerald";
   trend?: string;
   glow?: boolean;
 }
 
 function StatCard({ title, value, total, icon: Icon, color, trend, glow = false }: StatCardProps) {
-  const colorMap: any = {
+  const colorMap: Record<StatCardProps["color"], string> = {
     cyan: "text-cyan-400 bg-cyan-400/10",
     violet: "text-violet-400 bg-violet-400/10",
     amber: "text-amber-400 bg-amber-400/10",

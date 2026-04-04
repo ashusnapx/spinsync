@@ -1,9 +1,13 @@
 import { NextRequest } from "next/server";
+import { eq } from "drizzle-orm";
+
 import { db } from "@/db";
 import { pgLocations, machines } from "@/db/schema";
 import { success, errors } from "@/lib/api-response";
 import { requireAuth } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
+import { generatePgCode } from "@/lib/pg-code";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 // ═══════════════════════════════════════════
 // POST /api/pg/create — Create a new PG (admin flow)
@@ -25,22 +29,42 @@ export async function POST(request: NextRequest) {
     }
 
     const count = Number(machineCount);
-    if (isNaN(count) || count < 0 || count > 50) {
-      return errors.validation("machineCount must be between 0 and 50");
+    if (isNaN(count) || count < 1 || count > 50) {
+      return errors.validation("machineCount must be between 1 and 50");
+    }
+
+    const [existingPg] = await db
+      .select()
+      .from(pgLocations)
+      .where(eq(pgLocations.orgId, authCtx.user.id))
+      .limit(1);
+
+    if (existingPg) {
+      return errors.conflict("This admin already owns a PG");
     }
 
     // ── Generate unique PG code ──
     let pgCode = generatePgCode();
-    
-    // Simple collision retry (max 3 attempts)
-    for (let i = 0; i < 3; i++) {
+
+    // Retry collisions before failing hard.
+    let codeAvailable = false;
+    for (let i = 0; i < 10; i += 1) {
       const [existing] = await db
         .select()
         .from(pgLocations)
         .where(eq(pgLocations.code, pgCode))
         .limit(1);
-      if (!existing) break;
+
+      if (!existing) {
+        codeAvailable = true;
+        break;
+      }
+
       pgCode = generatePgCode();
+    }
+
+    if (!codeAvailable) {
+      return errors.internal("Failed to generate a unique PG code");
     }
 
     // ── Store PG location + Machines in Transaction ──
@@ -101,15 +125,19 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     if (err instanceof Response) return err;
     console.error("[PG/CREATE] Error:", err);
+    
+    // Fallback: Clean up the orphaned Supabase Auth User if Postgres commit fails
+    try {
+      const authCtx = await requireAuth(request).catch(() => null);
+      if (authCtx?.user?.id) {
+        const adminClient = createSupabaseAdminClient();
+        await adminClient.auth.admin.deleteUser(authCtx.user.id);
+        console.log(`[PG/CREATE] Rolled back auth user: ${authCtx.user.id}`);
+      }
+    } catch (cleanupErr) {
+      console.error("[PG/CREATE] Auth rollback failed:", cleanupErr);
+    }
+    
     return errors.internal();
   }
 }
-
-/**
- * Generate a random 6-digit numeric code.
- */
-function generatePgCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-import { eq } from "drizzle-orm";

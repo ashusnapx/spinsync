@@ -8,6 +8,10 @@ import { useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { zodValidator } from "@tanstack/zod-form-adapter";
 import { contactSchema } from "@/forms/shared/contact.schema";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 export default function ContactPage() {
   const [success, setSuccess] = useState(false);
@@ -94,23 +98,19 @@ export default function ContactPage() {
              <form.Field name="name">
                 {(field) => (
                   <div className="relative z-10 flex flex-col gap-1.5">
-                    <label htmlFor={field.name} className="text-sm font-semibold text-card-foreground">Name</label>
-                    <input 
+                    <Label htmlFor={field.name}>Name</Label>
+                    <Input 
                       id={field.name}
                       name={field.name}
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="Tim Cook" 
-                      className={`bg-background border rounded-xl px-4 py-3 text-foreground text-sm focus:outline-none focus:ring-1 transition-colors ${
-                        field.state.meta.isTouched && field.state.meta.errors.length > 0 
-                          ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500/50' 
-                          : 'border-border focus:border-primary focus:ring-primary'
-                      }`} 
+                      className={field.state.meta.isTouched && field.state.meta.errors.length > 0 ? "border-rose-500 focus-visible:ring-rose-500 data-[state=invalid]:border-rose-500" : ""}
                     />
                     {field.state.meta.isTouched && field.state.meta.errors.length > 0 && (
                       <p className="text-xs text-rose-500 font-medium">
-                        {field.state.meta.errors.join(", ")}
+                        {field.state.meta.errors.map((err: unknown) => typeof err === "object" && err !== null && "message" in err ? String(err.message) : String(err)).join(", ")}
                       </p>
                     )}
                   </div>
@@ -120,8 +120,8 @@ export default function ContactPage() {
              <form.Field name="email">
                 {(field) => (
                   <div className="relative z-10 flex flex-col gap-1.5">
-                    <label htmlFor={field.name} className="text-sm font-semibold text-card-foreground">Email Address</label>
-                    <input 
+                    <Label htmlFor={field.name}>Email Address</Label>
+                    <Input 
                       id={field.name}
                       name={field.name}
                       type="email"
@@ -129,15 +129,11 @@ export default function ContactPage() {
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="tim@apple.com" 
-                      className={`bg-background border rounded-xl px-4 py-3 text-foreground text-sm focus:outline-none focus:ring-1 transition-colors ${
-                        field.state.meta.isTouched && field.state.meta.errors.length > 0 
-                          ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500/50' 
-                          : 'border-border focus:border-primary focus:ring-primary'
-                      }`} 
+                      className={field.state.meta.isTouched && field.state.meta.errors.length > 0 ? "border-rose-500 focus-visible:ring-rose-500 data-[state=invalid]:border-rose-500" : ""}
                     />
                     {field.state.meta.isTouched && field.state.meta.errors.length > 0 && (
                       <p className="text-xs text-rose-500 font-medium">
-                        {field.state.meta.errors.join(", ")}
+                        {field.state.meta.errors.map((err: unknown) => typeof err === "object" && err !== null && "message" in err ? String(err.message) : String(err)).join(", ")}
                       </p>
                     )}
                   </div>
@@ -147,8 +143,8 @@ export default function ContactPage() {
              <form.Field name="message">
                 {(field) => (
                   <div className="relative z-10 flex flex-col gap-1.5">
-                    <label htmlFor={field.name} className="text-sm font-semibold text-card-foreground">Message</label>
-                    <textarea 
+                    <Label htmlFor={field.name}>Message</Label>
+                    <Textarea 
                       id={field.name}
                       name={field.name}
                       rows={4} 
@@ -156,15 +152,11 @@ export default function ContactPage() {
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="I want to upgrade my PG..." 
-                      className={`bg-background border rounded-xl px-4 py-3 text-foreground text-sm focus:outline-none focus:ring-1 transition-colors resize-none ${
-                        field.state.meta.isTouched && field.state.meta.errors.length > 0 
-                          ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500/50' 
-                          : 'border-border focus:border-primary focus:ring-primary'
-                      }`} 
+                      className={field.state.meta.isTouched && field.state.meta.errors.length > 0 ? "border-rose-500 focus-visible:ring-rose-500 data-[state=invalid]:border-rose-500 resize-none" : "resize-none"}
                     />
                     {field.state.meta.isTouched && field.state.meta.errors.length > 0 && (
                       <p className="text-xs text-rose-500 font-medium">
-                        {field.state.meta.errors.join(", ")}
+                        {field.state.meta.errors.map((err: unknown) => typeof err === "object" && err !== null && "message" in err ? String(err.message) : String(err)).join(", ")}
                       </p>
                     )}
                   </div>
@@ -173,13 +165,13 @@ export default function ContactPage() {
 
              <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
                {([canSubmit, isSubmitting]) => (
-                 <button 
-                  type="submit" 
-                  disabled={!canSubmit || isSubmitting} 
-                  className="relative z-10 mt-2 py-4 rounded-xl bg-foreground text-background font-bold hover:scale-[1.02] transition-transform duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
-                 >
-                   {isSubmitting ? "Sending..." : "Send Message"} <Send className="w-4 h-4" />
-                 </button>
+                  <Button 
+                   type="submit" 
+                   disabled={!canSubmit || isSubmitting} 
+                   className="relative z-10 mt-2 py-6 rounded-xl font-bold transition-transform duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isSubmitting ? "Sending..." : "Send Message"} <Send className="w-4 h-4 ml-1" />
+                  </Button>
                )}
              </form.Subscribe>
            </form>

@@ -3,13 +3,29 @@
 import Link from "next/link";
 import { motion, useScroll, useMotionValueEvent, AnimatePresence } from "framer-motion";
 import { ArrowRight, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { createSupabaseClient } from "@/lib/supabase/client";
+import { User } from "@supabase/supabase-js";
 
 export function Navbar() {
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const supabase = createSupabaseClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     setScrolled(latest > 50);
@@ -50,21 +66,35 @@ export function Navbar() {
 
           <div className="flex items-center gap-4">
             <ThemeToggle />
-            <Link
-              href="/auth/login"
-              className="hidden sm:block px-5 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-300"
-            >
-              Log In
-            </Link>
-            <Link
-              href="/auth/signup"
-              className="group hidden sm:flex relative px-6 py-2.5 text-sm font-bold bg-foreground text-background rounded-full overflow-hidden transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(var(--primary),0.2)] items-center gap-2"
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                Start Free <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
-              </span>
-              <div className="absolute inset-0 bg-gradient-to-r from-primary to-violet-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-            </Link>
+            {user ? (
+              <Link
+                href="/dashboard"
+                className="group hidden sm:flex relative px-6 py-2.5 text-sm font-bold bg-foreground text-background rounded-full overflow-hidden transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(var(--primary),0.2)] items-center gap-2"
+              >
+                <span className="relative z-10 flex items-center gap-2">
+                  Dashboard <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-primary to-violet-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/auth/login"
+                  className="hidden sm:block px-5 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-300"
+                >
+                  Log In
+                </Link>
+                <Link
+                  href="/auth/signup"
+                  className="group hidden sm:flex relative px-6 py-2.5 text-sm font-bold bg-foreground text-background rounded-full overflow-hidden transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_20px_rgba(var(--primary),0.2)] items-center gap-2"
+                >
+                  <span className="relative z-10 flex items-center gap-2">
+                    Start Free <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
+                  </span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-primary to-violet-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                </Link>
+              </>
+            )}
             
             <button 
               className="md:hidden p-2 text-muted-foreground hover:text-foreground"
@@ -116,14 +146,26 @@ export function Navbar() {
                 
                 <div className="flex flex-col gap-4">
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account</span>
-                  <Link href="/auth/login" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium hover:text-primary transition-colors">Log In</Link>
-                  <Link 
-                    href="/auth/signup" 
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="w-full py-4 text-center font-bold bg-primary text-primary-foreground rounded-xl mt-2 flex items-center justify-center gap-2"
-                  >
-                    Start Free <ArrowRight className="w-4 h-4" />
-                  </Link>
+                  {user ? (
+                    <Link 
+                      href="/dashboard" 
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="w-full py-4 text-center font-bold bg-primary text-primary-foreground rounded-xl mt-2 flex items-center justify-center gap-2"
+                    >
+                      Dashboard <ArrowRight className="w-4 h-4" />
+                    </Link>
+                  ) : (
+                    <>
+                      <Link href="/auth/login" onClick={() => setMobileMenuOpen(false)} className="text-lg font-medium hover:text-primary transition-colors">Log In</Link>
+                      <Link 
+                        href="/auth/signup" 
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="w-full py-4 text-center font-bold bg-primary text-primary-foreground rounded-xl mt-2 flex items-center justify-center gap-2"
+                      >
+                        Start Free <ArrowRight className="w-4 h-4" />
+                      </Link>
+                    </>
+                  )}
                 </div>
               </div>
               

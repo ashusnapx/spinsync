@@ -8,6 +8,8 @@ import { Send, User, CheckCheck, Loader2 } from "lucide-react";
 import { useForm } from "@tanstack/react-form";
 import { zodValidator } from "@tanstack/zod-form-adapter";
 import { chatSchema } from "@/forms/shared/chat.schema";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 // Mock initial messages
 const mockMessages = [
@@ -122,7 +124,7 @@ export default function ChatPage() {
           >
             <form.Field name="message">
               {(field) => (
-                <input
+                <Input
                   type="text"
                   name={field.name}
                   value={field.state.value}
@@ -130,20 +132,21 @@ export default function ChatPage() {
                   onChange={(e) => field.handleChange(e.target.value)}
                   placeholder="Message Sunny Meadows PG..."
                   autoComplete="off"
-                  className="flex-1 bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                  className="flex-1 bg-secondary border-border rounded-xl h-12"
                 />
               )}
             </form.Field>
             
             <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
               {([canSubmit, isSubmitting]) => (
-                <button
+                <Button
                   type="submit"
+                  size="icon"
                   disabled={!canSubmit || isSubmitting}
-                  className="w-12 shrink-0 rounded-xl bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  className="w-12 h-12 shrink-0 rounded-xl"
                 >
                   {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                </button>
+                </Button>
               )}
             </form.Subscribe>
           </form>

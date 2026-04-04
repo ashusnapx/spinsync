@@ -10,7 +10,14 @@ import { zodValidator } from "@tanstack/zod-form-adapter";
 import { FormInput } from "@/components/forms/FormInput";
 import { loginSchema } from "@/forms/auth/login.schema";
 import { AuthSplitLayout } from "@/components/layout/AuthSplitLayout";
-import { LoginVector } from "@/components/illustrations/LoginVector";
+import { Skeleton } from "@/components/ui/skeleton";
+import dynamic from "next/dynamic";
+
+const LoginVector = dynamic(() => import("@/components/illustrations/LoginVector").then(mod => mod.LoginVector), { 
+  ssr: false,
+  loading: () => <Skeleton className="w-[80%] h-[400px] rounded-full absolute right-[-10%] top-[40%] transform -translate-y-1/2 opacity-50" />
+});
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -42,8 +49,8 @@ export default function LoginPage() {
         }
 
         router.push("/dashboard");
-      } catch (err: any) {
-        setSubmitError(err.message || "Invalid credentials.");
+      } catch (err: unknown) {
+        setSubmitError(err instanceof Error ? err.message : "Invalid credentials.");
       }
     },
   });
@@ -83,7 +90,7 @@ export default function LoginPage() {
           {(field) => (
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="input-label mb-0">Password</label>
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Password</label>
                 <Link href="#" className="text-xs text-primary hover:text-primary/80 transition-colors">
                   Forgot password?
                 </Link>
@@ -101,13 +108,13 @@ export default function LoginPage() {
 
         <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
           {([canSubmit, isSubmitting]) => (
-            <button
+            <Button
               type="submit"
               disabled={!canSubmit || isSubmitting}
-              className="w-full btn btn-primary py-3 rounded-xl mt-6 bg-gradient-to-r from-primary to-violet-600 hover:shadow-[0_0_20px_rgba(var(--primary),0.3)] disabled:opacity-50 transition-all flex items-center justify-center font-semibold"
+              className="w-full py-6 rounded-xl mt-6 bg-gradient-to-r from-primary to-violet-600 hover:shadow-[0_0_20px_rgba(var(--primary),0.3)] transition-all flex items-center justify-center font-semibold text-white"
             >
               {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Log In"}
-            </button>
+            </Button>
           )}
         </form.Subscribe>
       </form>

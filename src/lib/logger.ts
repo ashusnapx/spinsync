@@ -18,6 +18,10 @@ export type AuditAction =
   | "pg.created"
   | "pg.joined"
   | "pg.join_rejected"
+  // Tenant admin events
+  | "tenant.created"
+  | "tenant.updated"
+  | "tenant.deleted"
   // Machine events
   | "machine.created"
   | "machine.started"

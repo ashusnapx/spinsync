@@ -11,7 +11,18 @@ import { zodValidator } from "@tanstack/zod-form-adapter";
 import { FormInput } from "@/components/forms/FormInput";
 import { signupSchema, signupStep1Schema } from "@/forms/auth/signup.schema";
 import { AuthSplitLayout } from "@/components/layout/AuthSplitLayout";
-import { SignupVector } from "@/components/illustrations/SignupVector";
+import { Skeleton } from "@/components/ui/skeleton";
+import dynamic from "next/dynamic";
+
+const SignupVector = dynamic(() => import("@/components/illustrations/SignupVector").then(mod => mod.SignupVector), { 
+  ssr: false,
+  loading: () => <Skeleton className="w-[80%] h-[400px] rounded-full absolute right-[-10%] top-[40%] transform -translate-y-1/2 opacity-50" />
+});
+import { normalizePgCode, PG_CODE_LENGTH } from "@/lib/pg-code";
+import { waitForActiveSession } from "@/lib/supabase/auth-flow";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -61,11 +72,13 @@ export default function SignupPage() {
           throw new Error(authError.message);
         }
 
+        await waitForActiveSession(supabase);
+
         const pgRes = await fetch("/api/pg/join", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            pgCode: value.pgCode,
+            pgCode: normalizePgCode(value.pgCode),
             roomNumber: value.roomNumber,
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
@@ -82,8 +95,10 @@ export default function SignupPage() {
 
         router.push("/dashboard");
 
-      } catch (err: any) {
-        setSubmitError(err.message || "An unexpected error occurred.");
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "An unexpected error occurred.";
+        setSubmitError(message);
       }
     },
   });
@@ -152,13 +167,13 @@ export default function SignupPage() {
               )}
             </form.Field>
 
-            <button
+            <Button
               type="button"
               onClick={handleNext}
-              className="w-full btn btn-primary py-3 rounded-xl mt-4 bg-gradient-to-r from-primary to-violet-600 hover:shadow-[0_0_20px_rgba(var(--primary),0.3)] transition-all font-semibold flex justify-center items-center"
+              className="w-full py-6 rounded-xl mt-4 bg-gradient-to-r from-primary to-violet-600 hover:shadow-[0_0_20px_rgba(var(--primary),0.3)] transition-all font-semibold flex justify-center items-center text-white"
             >
               Continue <ArrowRight className="w-4 h-4 ml-2" />
-            </button>
+            </Button>
           </motion.div>
         ) : (
           <motion.div
@@ -169,17 +184,41 @@ export default function SignupPage() {
           >
             <form.Field name="pgCode">
               {(field) => (
-                <div className="input-group">
-                  <FormInput 
-                    field={field} 
-                    label="PG Join Code" 
-                    icon={KeySquare} 
-                    placeholder="123456" 
-                    maxLength={6}
-                    inputMode="numeric"
-                    className="font-mono tracking-[0.3em] text-center text-lg"
-                  />
-                  <p className="text-xs text-muted-foreground/60 mt-1">Ask your PG admin for this 6-digit code.</p>
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>
+                    PG Join Code
+                  </Label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <KeySquare className="h-5 w-5 text-muted-foreground/60" />
+                    </div>
+                    <Input
+                      id={field.name}
+                      name={field.name}
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(e) =>
+                        field.handleChange(normalizePgCode(e.target.value))
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
+                      className="pl-10 font-mono text-center text-lg tracking-[0.3em] data-[state=invalid]:border-rose-500 focus-visible:ring-rose-500"
+                      placeholder="XC08HY"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={PG_CODE_LENGTH}
+                    />
+                  </div>
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <p className="text-xs text-rose-400 font-medium mt-1.5 flex items-center gap-1">
+                        {field.state.meta.errors.join(", ")}
+                      </p>
+                    )}
+                  <p className="text-xs text-muted-foreground/60 mt-1">Ask your PG admin for this 6-character code.</p>
                 </div>
               )}
             </form.Field>
@@ -196,23 +235,24 @@ export default function SignupPage() {
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => setStep(1)}
-                className="w-1/3 btn btn-secondary py-3 rounded-xl font-medium"
+                className="w-1/3 py-6 rounded-xl font-medium"
               >
                 Back
-              </button>
+              </Button>
               
-              <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
-                {([canSubmit, isSubmitting]) => (
-                  <button
+              <form.Subscribe selector={(state) => state.isSubmitting}>
+                {(isSubmitting) => (
+                  <Button
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-2/3 btn btn-primary py-3 rounded-xl bg-gradient-to-r from-primary to-violet-600 shadow-[0_0_20px_rgba(var(--primary),0.3)] disabled:opacity-50 flex items-center justify-center font-semibold"
+                    className="w-2/3 py-6 rounded-xl bg-gradient-to-r from-primary to-violet-600 shadow-[0_0_20px_rgba(var(--primary),0.3)] flex items-center justify-center font-semibold text-white"
                   >
                     {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verify & Join PG"}
-                  </button>
+                  </Button>
                 )}
               </form.Subscribe>
             </div>

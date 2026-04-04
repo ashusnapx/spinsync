@@ -4,8 +4,14 @@ import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { fadeUp, staggerContainer, scaleIn } from "@/components/ui/Animations";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
-import { HeroAppVector } from "@/components/illustrations/HeroAppVector";
+import dynamic from "next/dynamic";
 import { ArrowRight, Sparkles, CheckCircle2, QrCode, MessageSquareHeart } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const HeroAppVector = dynamic(() => import("@/components/illustrations/HeroAppVector").then(mod => mod.HeroAppVector), { 
+  ssr: false,
+  loading: () => <Skeleton className="w-[80%] h-[500px] rounded-3xl" />
+});
 
 export default function LandingPage() {
   const { scrollYProgress } = useScroll();

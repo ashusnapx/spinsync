@@ -7,6 +7,7 @@ import { computeTrustScore, recordVerification } from "@/lib/geo-server-utils";
 import { extractDeviceInfo, verifyDevice } from "@/lib/device-identity";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
 import { requireAuth } from "@/lib/guard";
+import { normalizePgCode } from "@/lib/pg-code";
 
 // ═══════════════════════════════════════════
 // POST /api/pg/join — Join a PG by code + location
@@ -19,9 +20,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { pgCode, roomNumber, latitude, longitude, gpsAccuracy, fingerprint } = body;
+    const normalizedPgCode = normalizePgCode(String(pgCode ?? ""));
 
     // ── Validate input ──
-    if (!pgCode || !roomNumber || latitude == null || longitude == null) {
+    if (!normalizedPgCode || !roomNumber || latitude == null || longitude == null) {
       return errors.validation("Missing required fields: pgCode, roomNumber, latitude, longitude");
     }
 
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
     const [pgLocation] = await db
       .select()
       .from(pgLocations)
-      .where(eq(pgLocations.code, pgCode.toUpperCase()))
+      .where(eq(pgLocations.code, normalizedPgCode))
       .limit(1);
 
     if (!pgLocation) {
@@ -117,7 +119,7 @@ export async function POST(request: NextRequest) {
       resource: "pg_location",
       resourceId: pgLocation.id,
       metadata: {
-        pgCode,
+        pgCode: normalizedPgCode,
         roomNumber,
         trustScore: trustResult.score,
         distance: trustResult.distanceMeters,
@@ -131,6 +133,7 @@ export async function POST(request: NextRequest) {
       pgName: pgLocation.name,
       orgId: pgLocation.orgId,
       roomNumber,
+      pgCode: normalizedPgCode,
       trustScore: trustResult.score,
     });
   } catch (err) {
