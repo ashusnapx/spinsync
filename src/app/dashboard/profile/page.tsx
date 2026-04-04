@@ -6,7 +6,7 @@ import { createSupabaseClient } from "@/lib/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { fadeUp, staggerContainer } from "@/components/ui/Animations";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
-import { Crown, Zap, ShieldCheck, CreditCard, ChevronRight, Loader2 } from "lucide-react";
+import { ShieldCheck, CreditCard, Loader2, Sparkles, type LucideIcon } from "lucide-react";
 
 export default function ProfilePage() {
   const supabase = createSupabaseClient();
@@ -42,8 +42,8 @@ export default function ProfilePage() {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
        <div>
-        <h1 className="text-3xl font-bold tracking-tight mb-2">Profile & Billing</h1>
-        <p className="text-muted-foreground">Manage your DhobiQ account and premium status.</p>
+        <h1 className="text-3xl font-bold tracking-tight mb-2">Profile</h1>
+        <p className="text-muted-foreground">Manage your DhobiQ account and member access.</p>
       </div>
 
       <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -55,7 +55,7 @@ export default function ProfilePage() {
               <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-cyan-400 to-violet-600 flex items-center justify-center text-4xl font-black text-black shrink-0 relative">
                 {userName.charAt(0).toUpperCase()}
                 <div className="absolute inset-x-0 -bottom-2 flex justify-center">
-                  <span className="px-2 py-0.5 rounded bg-black border border-white/20 text-[10px] font-bold tracking-widest uppercase text-white/80">Pro</span>
+                  <span className="px-2 py-0.5 rounded bg-black border border-white/20 text-[10px] font-bold tracking-widest uppercase text-white/80">Member</span>
                 </div>
               </div>
               <div className="flex-1">
@@ -65,28 +65,26 @@ export default function ProfilePage() {
                   <div className="px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3" /> Verified Member
                   </div>
-                  <div className="px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1">
-                    <Zap className="w-3 h-3" /> 1,250 Points
-                  </div>
                 </div>
               </div>
             </div>
           </AnimatedCard>
         </motion.div>
 
-        {/* Premium Upgrade Card */}
+        {/* Rollout Status Card */}
         <motion.div variants={fadeUp}>
            <AnimatedCard className="p-6 h-full flex flex-col justify-center relative overflow-hidden" glow>
               <div className="absolute top-0 right-0 p-4 opacity-10">
-                <Crown className="w-24 h-24" />
+                <Sparkles className="w-24 h-24" />
               </div>
               <div className="relative z-10">
-                <Crown className="w-8 h-8 text-amber-400 mb-4" />
-                <h3 className="text-xl font-bold mb-2">DhobiQ Premium</h3>
-                <p className="text-muted-foreground text-sm mb-6">You are currently on the free tier. Upgrade to jump the queue.</p>
-                <button className="w-full bg-gradient-to-r from-amber-500 to-orange-400 text-black font-bold py-3 px-4 rounded-xl hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] hover:scale-105 transition-all flex items-center justify-center gap-2">
-                  Upgrade ₹299/mo <ChevronRight className="w-4 h-4" />
-                </button>
+                <Sparkles className="w-8 h-8 text-amber-400 mb-4" />
+                <h3 className="text-xl font-bold mb-2">Current Rollout</h3>
+                <p className="text-muted-foreground text-sm mb-6">
+                  Queueing, gamification, and related billing upgrades are paused
+                  for now. Your account remains fully active for machine access,
+                  tenant coordination, and community chat.
+                </p>
               </div>
            </AnimatedCard>
         </motion.div>
@@ -98,7 +96,7 @@ export default function ProfilePage() {
         <div className="space-y-4">
           <SettingsRow icon={ShieldCheck} title="Two-Factor Authentication" description="Add an extra layer of security to your account." action="Enable" />
           <SettingsRow icon={CreditCard} title="Payment Methods" description="Manage your cards and UPI linked to DhobiQ." action="Manage" />
-          <SettingsRow icon={Zap} title="Notification Preferences" description="Choose how and when you get alerted." action="Configure" />
+          <SettingsRow icon={Sparkles} title="Notification Preferences" description="Choose how and when you get alerted." action="Configure" />
         </div>
       </motion.div>
 
@@ -106,7 +104,17 @@ export default function ProfilePage() {
   );
 }
 
-function SettingsRow({ icon: Icon, title, description, action }: any) {
+function SettingsRow({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  action: string;
+}) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 md:p-6 rounded-2xl bg-secondary border border-border hover:bg-secondary/80 transition-colors">
       <div className="flex items-center gap-4">

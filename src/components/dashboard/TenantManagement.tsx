@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   Loader2,
   Pencil,
@@ -46,6 +46,7 @@ import {
   tenantSubscriptionStatuses,
   updateTenantSchema,
 } from "@/forms/dashboard/tenant.schema";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import { cn } from "@/lib/utils";
 
 type TenantSubscriptionStatus = (typeof tenantSubscriptionStatuses)[number];
@@ -65,7 +66,6 @@ interface TenantManagementProps {
   pgCode: string;
   pgName: string;
   initialTenantCount?: number;
-  onTenantCountChange?: (count: number) => void;
 }
 
 interface TenantFormState {
@@ -88,7 +88,6 @@ export function TenantManagement({
   pgCode,
   pgName,
   initialTenantCount,
-  onTenantCountChange,
 }: TenantManagementProps) {
   const [tenants, setTenants] = useState<TenantRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,12 +100,7 @@ export function TenantManagement({
   const [editingTenant, setEditingTenant] = useState<TenantRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TenantRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  const onTenantCountChangeRef = useRef(onTenantCountChange);
-  // Always keep ref up to date with the latest prop without triggering dependency changes
-  useEffect(() => {
-    onTenantCountChangeRef.current = onTenantCountChange;
-  }, [onTenantCountChange]);
+  const updateTenantCount = useDashboardStore((state) => state.updateTenantCount);
 
   const fetchTenants = useCallback(async (showSpinner = true) => {
     if (showSpinner) {
@@ -125,8 +119,6 @@ export function TenantManagement({
 
       const nextTenants = sortTenants(payload.data as TenantRecord[]);
       setTenants(nextTenants);
-      // Use the stable ref callback instead of a changing prop
-      onTenantCountChangeRef.current?.(nextTenants.length);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to load tenants";
@@ -145,6 +137,12 @@ export function TenantManagement({
     () => (tenants.length > 0 || !isLoading ? tenants.length : initialTenantCount ?? 0),
     [initialTenantCount, isLoading, tenants.length]
   );
+
+  useEffect(() => {
+    if (!isLoading) {
+      updateTenantCount(tenants.length);
+    }
+  }, [isLoading, tenants.length, updateTenantCount]);
 
   function openCreateDialog() {
     setFormMode("create");
@@ -222,17 +220,13 @@ export function TenantManagement({
       const nextTenant = payload.data as TenantRecord;
 
       setTenants((currentTenants) => {
-        const nextTenants =
-          formMode === "create"
-            ? sortTenants([nextTenant, ...currentTenants])
-            : sortTenants(
-                currentTenants.map((tenant) =>
-                  tenant.userId === nextTenant.userId ? nextTenant : tenant
-                )
-              );
-
-        onTenantCountChange?.(nextTenants.length);
-        return nextTenants;
+        return formMode === "create"
+          ? sortTenants([nextTenant, ...currentTenants])
+          : sortTenants(
+              currentTenants.map((tenant) =>
+                tenant.userId === nextTenant.userId ? nextTenant : tenant
+              )
+            );
       });
 
       toast.success(
@@ -273,11 +267,9 @@ export function TenantManagement({
       };
 
       setTenants((currentTenants) => {
-        const nextTenants = currentTenants.filter(
+        return currentTenants.filter(
           (tenant) => tenant.userId !== deleteTarget.userId
         );
-        onTenantCountChange?.(nextTenants.length);
-        return nextTenants;
       });
 
       if (result.authDeleted) {

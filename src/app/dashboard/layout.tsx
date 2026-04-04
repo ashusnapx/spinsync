@@ -7,17 +7,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { 
-  Menu, X, Home, WashingMachine, ListChecks, 
-  MessageSquare, UserCircle, LogOut, Loader2, Globe
+  Menu, X, Home, WashingMachine,
+  MessageSquare, UserCircle, LogOut, Globe
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import DashboardLoading from "./loading";
+import { useDashboardStore } from "@/stores/dashboard-store";
 
-// Dummy PG Name for preview, in real app fetch via org
 const navLinks = [
   { href: "/dashboard", label: "Overview", icon: Home },
   { href: "/dashboard/machines", label: "Machines", icon: WashingMachine },
-  { href: "/dashboard/queue", label: "Live Queue", icon: ListChecks },
   { href: "/dashboard/chat", label: "Community", icon: MessageSquare },
   { href: "/dashboard/profile", label: "Profile", icon: UserCircle },
 ];
@@ -28,21 +27,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isPending, setIsPending] = useState(true);
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [pgName, setPgName] = useState<string>("Loading PG...");
+  const pgData = useDashboardStore((state) => state.pgData);
+  const pgStatus = useDashboardStore((state) => state.status);
+  const fetchPgData = useDashboardStore((state) => state.fetchPgData);
+  const clearPgData = useDashboardStore((state) => state.clearPgData);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user?.id) {
-        supabase
-          .from('pg_locations')
-          .select('name')
-          .eq('org_id', session.user.id)
-          .single()
-          .then(({ data }) => {
-            if (data?.name) setPgName(data.name);
-            else setPgName("Setup Pending");
-          });
+        void fetchPgData();
+      } else {
+        clearPgData();
       }
       setIsPending(false);
     });
@@ -50,20 +46,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
       if (session?.user?.id) {
-        supabase
-          .from('pg_locations')
-          .select('name')
-          .eq('org_id', session.user.id)
-          .single()
-          .then(({ data }) => {
-            if (data?.name) setPgName(data.name);
-          });
+        void fetchPgData();
+      } else {
+        clearPgData();
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, [clearPgData, fetchPgData, supabase]);
 
   // Fallback to login if somehow here without session
   useEffect(() => {
@@ -77,6 +69,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!session) return null;
+
+  const pgName =
+    pgData?.name ?? (pgStatus === "loading" ? "Loading PG..." : "Setup Pending");
 
   return (
     <div className="min-h-screen bg-background text-foreground flex overflow-hidden font-sans">
@@ -173,9 +168,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button
             onClick={async () => {
               await supabase.auth.signOut();
+              clearPgData();
               window.location.href = "/auth/login";
             }}
-            className="flex items-center gap-3 px-4 py-3 rounded-xl font-medium text- rose-500/80 hover:text-rose-500 hover:bg-rose-500/10 transition-colors w-full text-left"
+            className="flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-rose-500/80 hover:text-rose-500 hover:bg-rose-500/10 transition-colors w-full text-left"
           >
             <LogOut className="w-5 h-5" />
             Sign Out

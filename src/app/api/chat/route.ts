@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { chatMessages } from "@/db/schema";
-import { eq, and, desc, lt, sql } from "drizzle-orm";
+import { eq, and, desc, lt } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
-import { requireOrganization, requireRole, requireResourceAccess, withGuard } from "@/lib/guard";
+import { requireOrganization, withGuard } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
 
 // ═══════════════════════════════════════════
@@ -43,15 +43,18 @@ export async function GET(request: NextRequest) {
       parseInt(request.nextUrl.searchParams.get("limit") || "50"),
       100
     );
+    const beforeDate = before ? new Date(before) : null;
 
-    let query = db
+    await purgeExpiredChatMessages();
+
+    const query = db
       .select()
       .from(chatMessages)
       .where(
         and(
           eq(chatMessages.orgId, ctx.orgId),
           eq(chatMessages.isDeleted, false),
-          ...(before ? [lt(chatMessages.createdAt, new Date(before))] : [])
+          ...(beforeDate ? [lt(chatMessages.createdAt, beforeDate)] : [])
         )
       )
       .orderBy(desc(chatMessages.createdAt))
@@ -75,6 +78,8 @@ export async function POST(request: NextRequest) {
     const ctx = await requireOrganization(request);
     const body = await request.json();
     const { content } = body;
+
+    await purgeExpiredChatMessages();
 
     if (!content || typeof content !== "string") {
       return errors.validation("Message content is required");
@@ -173,4 +178,21 @@ export async function DELETE(request: NextRequest) {
 
     return success({ deleted: true });
   });
+}
+
+async function purgeExpiredChatMessages() {
+  await db
+    .delete(chatMessages)
+    .where(lt(chatMessages.createdAt, getStartOfTodayInIst()));
+}
+
+function getStartOfTodayInIst() {
+  const formattedDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  return new Date(`${formattedDate}T00:00:00+05:30`);
 }

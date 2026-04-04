@@ -1,99 +1,228 @@
-import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
+import type { ComponentType } from "react";
+import {
+  AlertTriangle,
+  Clock3,
+  MapPin,
+  QrCode,
+  Settings2,
+  ShieldAlert,
+  StopCircle,
+  Wrench,
+} from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Play, RotateCw, Settings, AlertCircle } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-type MachineStatus = "free" | "occupied" | "grace_period" | "maintenance" | "offline";
+export type MachineCardStatus =
+  | "free"
+  | "occupied"
+  | "grace_period"
+  | "locked"
+  | "maintenance"
+  | "out_of_order";
+
+export interface MachineCardAction {
+  label: string;
+  onClick: () => void;
+  icon?: ComponentType<{ className?: string }>;
+  variant?: "default" | "outline" | "secondary" | "destructive";
+  disabled?: boolean;
+}
 
 interface MachineCardProps {
   id: string;
   name: string;
-  status: MachineStatus;
-  timeRemaining?: string;
-  onAction?: () => void;
-  isAdmin?: boolean;
-  onEdit?: () => void;
-  onDelete?: () => void;
+  type: string;
+  status: MachineCardStatus;
+  floor?: string | null;
+  location?: string | null;
+  primaryAction?: MachineCardAction | null;
+  secondaryAction?: MachineCardAction | null;
+  adminActions?: MachineCardAction[];
 }
 
-const statusConfig = {
-  free: { label: "Available", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-  occupied: { label: "In Use", color: "bg-rose-500/10 text-rose-400 border-rose-500/20" },
-  grace_period: { label: "Grace Period", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
-  maintenance: { label: "Maintenance", color: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
-  offline: { label: "Offline", color: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20" },
+const statusConfig: Record<
+  MachineCardStatus,
+  {
+    label: string;
+    badgeClassName: string;
+    description: string;
+    icon: ComponentType<{ className?: string }>;
+  }
+> = {
+  free: {
+    label: "Available",
+    badgeClassName: "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    description: "Ready for the next wash cycle.",
+    icon: Clock3,
+  },
+  occupied: {
+    label: "In Use",
+    badgeClassName: "border-sky-500/20 bg-sky-500/10 text-sky-300",
+    description: "Machine is currently running.",
+    icon: StopCircle,
+  },
+  grace_period: {
+    label: "Grace Period",
+    badgeClassName: "border-amber-500/20 bg-amber-500/10 text-amber-300",
+    description: "Cycle ended. Waiting for pickup.",
+    icon: Clock3,
+  },
+  locked: {
+    label: "Locked",
+    badgeClassName: "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    description: "Admin intervention is required.",
+    icon: ShieldAlert,
+  },
+  maintenance: {
+    label: "Maintenance",
+    badgeClassName: "border-violet-500/20 bg-violet-500/10 text-violet-300",
+    description: "Temporarily unavailable for service work.",
+    icon: Wrench,
+  },
+  out_of_order: {
+    label: "Out of Order",
+    badgeClassName: "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    description: "Reported faulty and unavailable.",
+    icon: AlertTriangle,
+  },
 };
 
-export function MachineCard({ id, name, status, timeRemaining, onAction, isAdmin, onEdit, onDelete }: MachineCardProps) {
+export function MachineCard({
+  id,
+  name,
+  type,
+  status,
+  floor,
+  location,
+  primaryAction,
+  secondaryAction,
+  adminActions = [],
+}: MachineCardProps) {
   const config = statusConfig[status];
+  const StatusIcon = config.icon;
 
   return (
-    <Card className="group relative overflow-hidden bg-card border-border hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-      {/* Admin Actions Overlay */}
-      {isAdmin && (
-        <div className="absolute top-2 right-2 flex gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-black/20 hover:bg-black/40 text-white" onClick={(e) => { e.stopPropagation(); onEdit?.(); }}>
-            <Settings className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-rose-500/20 hover:bg-rose-500/40 text-rose-400" onClick={(e) => { e.stopPropagation(); onDelete?.(); }}>
-            <AlertCircle className="w-4 h-4" />
-          </Button>
-        </div>
-      )}
-
-      {/* Dynamic Status Glow */}
-      <div 
-        className={cn(
-          "absolute top-0 right-0 w-32 h-32 blur-[60px] opacity-20 -translate-y-1/2 translate-x-1/2 transition-colors duration-500",
-          status === "free" && "bg-emerald-500",
-          status === "occupied" && "bg-rose-500",
-          status === "grace_period" && "bg-amber-500",
-          status === "maintenance" && "bg-violet-500",
-        )}
-      />
-
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="text-2xl font-bold tracking-tight text-white mb-1 group-hover:text-primary transition-colors">{name}</h3>
-            <p className="text-sm text-muted-foreground font-mono">ID: {id}</p>
+    <Card className="h-full border-white/10 bg-white/5 backdrop-blur-xl">
+      <CardHeader className="space-y-4 pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <CardTitle className="text-xl">{name}</CardTitle>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/40">
+              {formatMachineType(type)} · {id.slice(0, 8)}
+            </p>
           </div>
-          <Badge variant="outline" className={cn("px-2.5 py-0.5", config.color)}>
+          <Badge variant="outline" className={cn("px-3 py-1", config.badgeClassName)}>
             {config.label}
           </Badge>
         </div>
+
+        <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-white/5 p-2 text-primary">
+              <StatusIcon className="size-4" />
+            </div>
+            <div>
+              <div className="text-sm font-medium text-white">{config.label}</div>
+              <div className="mt-1 text-sm text-white/55">{config.description}</div>
+            </div>
+          </div>
+        </div>
       </CardHeader>
 
-      <CardContent>
-        <div className="flex flex-col gap-1 mt-4">
-          <span className="text-sm font-medium text-muted-foreground">Time Remaining</span>
-          {timeRemaining ? (
-            <span className="text-3xl font-black tabular-nums tracking-tighter text-white">
-              {timeRemaining}
-            </span>
-          ) : (
-            <span className="text-3xl font-black tracking-tighter text-white/20">
-              --:--
-            </span>
-          )}
-        </div>
+      <CardContent className="space-y-3">
+        <MachineMetaRow label="Type" value={formatMachineType(type)} />
+        <MachineMetaRow label="Floor" value={floor || "Not set"} />
+        <MachineMetaRow
+          label="Location"
+          value={location || "Location details not added"}
+          icon={MapPin}
+        />
+
+        {adminActions.length > 0 && (
+          <div className="space-y-2 pt-2">
+            <div className="text-xs uppercase tracking-[0.18em] text-white/35">
+              Admin Controls
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {adminActions.map((action) => {
+                const Icon = action.icon ?? Settings2;
+
+                return (
+                  <Button
+                    key={action.label}
+                    variant={action.variant ?? "outline"}
+                    size="sm"
+                    onClick={action.onClick}
+                    disabled={action.disabled}
+                  >
+                    <Icon className="size-4" />
+                    {action.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </CardContent>
 
-      <CardFooter className="pt-4 border-t border-border/50">
-        <Button 
-          variant={status === "free" ? "default" : "secondary"} 
-          className="w-full relative"
-          disabled={status !== "free"}
-          onClick={onAction}
-        >
-          {status === "free" && <><Play className="w-4 h-4 mr-1" /> Start Machine</>}
-          {status === "occupied" && <><RotateCw className="w-4 h-4 mr-1 animate-spin-slow" /> Running...</>}
-          {status === "grace_period" && "Waiting for pickup"}
-          {status === "maintenance" && <><Settings className="w-4 h-4 mr-1" /> Maintenance</>}
-          {status === "offline" && <><AlertCircle className="w-4 h-4 mr-1" /> Unavailable</>}
-        </Button>
-      </CardFooter>
+      {(primaryAction || secondaryAction) && (
+        <CardFooter className="grid gap-3 border-t border-white/10 bg-white/5 sm:grid-cols-2">
+          {primaryAction && <MachineActionButton action={primaryAction} />}
+          {secondaryAction && <MachineActionButton action={secondaryAction} />}
+        </CardFooter>
+      )}
     </Card>
   );
+}
+
+function MachineActionButton({ action }: { action: MachineCardAction }) {
+  const Icon = action.icon ?? QrCode;
+
+  return (
+    <Button
+      variant={action.variant ?? "default"}
+      className="w-full"
+      onClick={action.onClick}
+      disabled={action.disabled}
+    >
+      <Icon className="size-4" />
+      {action.label}
+    </Button>
+  );
+}
+
+function MachineMetaRow({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  icon?: ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-xl border border-white/5 bg-black/10 px-4 py-3">
+      <div className="text-sm text-white/45">{label}</div>
+      <div className="flex items-center gap-2 text-right text-sm font-medium text-white/80">
+        {Icon ? <Icon className="size-4 text-white/35" /> : null}
+        <span>{value}</span>
+      </div>
+    </div>
+  );
+}
+
+function formatMachineType(type: string) {
+  return type
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
