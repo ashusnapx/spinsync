@@ -12,7 +12,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://dhobiq.app"),
+  metadataBase: new URL("https://dhobiq.vercel.app"),
   title: {
     default: "DhobiQ — Smart Laundry Management for PGs",
     template: "%s | DhobiQ",
@@ -31,13 +31,13 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_IN",
-    url: "https://dhobiq.app",
+    url: "https://dhobiq.vercel.app",
     siteName: "DhobiQ",
     title: "DhobiQ — Smart Laundry Management",
     description: "Real-time machine tracking, smart queues, and QR access for PG laundry.",
     images: [
       {
-        url: "/opengraph-image.png",
+        url: "/screenshot.png",
         width: 1200,
         height: 630,
         alt: "DhobiQ Smart Laundry Management",
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "DhobiQ — Smart Laundry Management",
     description: "Real-time machine tracking, smart queues, and QR access for PG laundry.",
-    images: ["/twitter-image.png"],
+    images: ["/screenshot.png"],
   },
   icons: {
     icon: "/icon.png",

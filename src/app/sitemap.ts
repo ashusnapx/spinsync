@@ -1,8 +1,7 @@
 import { MetadataRoute } from 'next';
 
-// In a real application, you might fetch dynamic routes (like blog posts or specific public pages) from a database here.
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://dhobiq.app';
+  const baseUrl = 'https://dhobiq.vercel.app';
 
   return [
     {
@@ -12,22 +11,34 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     {
-      url: `${baseUrl}/auth/login`,
+      url: `${baseUrl}/about`,
       lastModified: new Date(),
-      changeFrequency: 'yearly',
+      changeFrequency: 'monthly',
       priority: 0.8,
     },
     {
-      url: `${baseUrl}/auth/signup`,
+      url: `${baseUrl}/pricing`,
       lastModified: new Date(),
-      changeFrequency: 'yearly',
+      changeFrequency: 'monthly',
       priority: 0.9,
     },
     {
-      url: `${baseUrl}/auth/create-pg`,
+      url: `${baseUrl}/contact`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly',
+      priority: 0.7,
+    },
+    {
+      url: `${baseUrl}/privacy`,
       lastModified: new Date(),
       changeFrequency: 'yearly',
-      priority: 0.8,
+      priority: 0.3,
+    },
+    {
+      url: `${baseUrl}/terms`,
+      lastModified: new Date(),
+      changeFrequency: 'yearly',
+      priority: 0.3,
     },
   ];
 }
