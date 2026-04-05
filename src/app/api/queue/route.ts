@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { queueEntries, userProfiles, machines } from "@/db/schema";
-import { eq, and, asc, desc, sql, gte } from "drizzle-orm";
+import { queueEntries, machines } from "@/db/schema";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
 import { requireOrganization, requireResourceAccess, withGuard } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
@@ -59,50 +59,36 @@ export async function POST(request: NextRequest) {
     if (!machine) return errors.notFound("Machine");
     requireResourceAccess(ctx, machine.orgId);
 
-    // ── Check user not already in queue ──
-    const [existing] = await db
+    const existingEntries = await db
       .select()
       .from(queueEntries)
       .where(
         and(
-          eq(queueEntries.machineId, machineId),
+          eq(queueEntries.orgId, ctx.orgId),
           eq(queueEntries.userId, ctx.user.id)
-        )
-      )
-      .limit(1);
-
-    if (existing) {
-      return errors.conflict("You are already in the queue for this machine");
-    }
-
-    // ── Get user profile for premium weight ──
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, ctx.user.id))
-      .limit(1);
-
-    const isPremium = profile?.subscriptionStatus === "premium";
-
-    // ── Calculate fairness decay ──
-    // Count how many times this user jumped queue in the last 24 hours
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentJumps = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(queueEntries)
-      .where(
-        and(
-          eq(queueEntries.userId, ctx.user.id),
-          gte(queueEntries.joinedAt, twentyFourHoursAgo)
         )
       );
 
-    const jumpCount = Number(recentJumps[0]?.count || 0);
-    const premiumWeight = isPremium ? 30 : 0;
-    const fairnessDecay = isPremium ? -(jumpCount * 5) : 0;
+    if (existingEntries.some((entry) => entry.machineId === machineId)) {
+      return errors.conflict("You are already in the queue for this machine");
+    }
 
-    // Wait time starts at 0, increases over time (calculated at query time)
-    const priorityScore = premiumWeight + fairnessDecay;
+    const replacedMachineIds = Array.from(
+      new Set(existingEntries.map((entry) => entry.machineId))
+    );
+
+    if (replacedMachineIds.length > 0) {
+      await db
+        .delete(queueEntries)
+        .where(
+          and(
+            eq(queueEntries.orgId, ctx.orgId),
+            eq(queueEntries.userId, ctx.user.id)
+          )
+        );
+
+      await Promise.all(replacedMachineIds.map((queuedMachineId) => resortQueue(queuedMachineId)));
+    }
 
     // ── Get current max position ──
     const [maxPos] = await db
@@ -119,14 +105,14 @@ export async function POST(request: NextRequest) {
         machineId,
         userId: ctx.user.id,
         orgId: ctx.orgId,
-        priorityScore,
-        premiumWeight,
-        fairnessDecay,
+        priorityScore: 0,
+        premiumWeight: 0,
+        fairnessDecay: 0,
         position,
       })
       .returning();
 
-    // ── Re-sort queue by priority (premium users move up, but with decay) ──
+    // ── Re-sort queue to keep FIFO positions stable ──
     await resortQueue(machineId);
 
     await audit({
@@ -134,14 +120,15 @@ export async function POST(request: NextRequest) {
       action: "queue.joined",
       resource: "machine",
       resourceId: machineId,
-      metadata: { position, priorityScore, premiumWeight, fairnessDecay },
+      metadata: { position, replacedMachineIds },
       ipAddress: getIpAddress(request),
       userAgent: getUserAgent(request),
     });
 
     return success({
       ...entry,
-      estimatedWaitMinutes: position * 30, // rough estimate: 30 min per person
+      replacedMachineIds,
+      estimatedWaitMinutes: position * 30,
     });
   });
 }
@@ -155,52 +142,62 @@ export async function DELETE(request: NextRequest) {
     const ctx = await requireOrganization(request);
     const machineId = request.nextUrl.searchParams.get("machineId");
 
-    if (!machineId) {
-      return errors.validation("machineId query parameter is required");
-    }
-
-    const result = await db
-      .delete(queueEntries)
+    const existingEntries = await db
+      .select()
+      .from(queueEntries)
       .where(
         and(
-          eq(queueEntries.machineId, machineId),
-          eq(queueEntries.userId, ctx.user.id)
+          eq(queueEntries.orgId, ctx.orgId),
+          eq(queueEntries.userId, ctx.user.id),
+          ...(machineId ? [eq(queueEntries.machineId, machineId)] : [])
         )
       );
 
-    if ((result.rowCount ?? 0) === 0) {
+    if (existingEntries.length === 0) {
       return errors.notFound("Queue entry");
     }
 
-    // Re-sort remaining queue
-    await resortQueue(machineId);
+    await db
+      .delete(queueEntries)
+      .where(
+        and(
+          eq(queueEntries.orgId, ctx.orgId),
+          eq(queueEntries.userId, ctx.user.id),
+          ...(machineId ? [eq(queueEntries.machineId, machineId)] : [])
+        )
+      );
+
+    await Promise.all(
+      Array.from(new Set(existingEntries.map((entry) => entry.machineId))).map((queuedMachineId) =>
+        resortQueue(queuedMachineId)
+      )
+    );
 
     await audit({
       userId: ctx.user.id,
       action: "queue.left",
       resource: "machine",
-      resourceId: machineId,
+      resourceId: machineId ?? existingEntries[0].machineId,
       ipAddress: getIpAddress(request),
       userAgent: getUserAgent(request),
     });
 
-    return success({ removed: true });
+    return success({
+      removed: true,
+      removedMachineIds: existingEntries.map((entry) => entry.machineId),
+    });
   });
 }
 
 /**
- * Re-sort queue positions based on priority scores.
- * priority_score = premium_weight + wait_time_minutes + fairness_decay
- * Wait time is calculated dynamically from joinedAt.
+ * Re-sort queue positions to preserve FIFO order.
  */
 async function resortQueue(machineId: string) {
-  // Recalculate with dynamic wait time and re-assign positions
   await db.execute(sql`
     WITH ranked AS (
       SELECT id,
         ROW_NUMBER() OVER (
           ORDER BY 
-            (priority_score + EXTRACT(EPOCH FROM (NOW() - joined_at)) / 60) DESC,
             joined_at ASC
         ) as new_position
       FROM queue_entries

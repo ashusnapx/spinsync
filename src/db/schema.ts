@@ -92,6 +92,8 @@ export const machines = pgTable("machines", {
   orgId: text("org_id").notNull(),
   floor: text("floor"),
   location: text("location_description"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
   qrSecret: text("qr_secret"),
   currentSessionId: uuid("current_session_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -214,6 +216,9 @@ export const chatMessages = pgTable("chat_messages", {
   userName: text("user_name").notNull(),
   content: text("content").notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),
+  deletedAt: timestamp("deleted_at"),
+  deletedByUserId: text("deleted_by_user_id"),
+  deletedByAdmin: boolean("deleted_by_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

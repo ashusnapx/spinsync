@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Pencil,
   Plus,
@@ -84,12 +86,33 @@ const EMPTY_TENANT_FORM: TenantFormState = {
   password: "",
 };
 
+const TENANTS_PER_PAGE = 5;
+const TENANT_CACHE_TTL_MS = 30000;
+type TenantPageCacheEntry = {
+  rows: TenantRecord[];
+  total: number;
+  expiresAt: number;
+};
+
+const tenantPageCache = new Map<string, TenantPageCacheEntry>();
+const inFlightTenantRequests = new Map<
+  string,
+  Promise<{ rows: TenantRecord[]; total: number }>
+>();
+
+function clearTenantPageCache() {
+  tenantPageCache.clear();
+  inFlightTenantRequests.clear();
+}
+
 export function TenantManagement({
   pgCode,
   pgName,
   initialTenantCount,
 }: TenantManagementProps) {
   const [tenants, setTenants] = useState<TenantRecord[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalTenants, setTotalTenants] = useState(initialTenantCount ?? 0);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
@@ -102,7 +125,11 @@ export function TenantManagement({
   const [isDeleting, setIsDeleting] = useState(false);
   const updateTenantCount = useDashboardStore((state) => state.updateTenantCount);
 
-  const fetchTenants = useCallback(async (showSpinner = true) => {
+  const fetchTenants = useCallback(async (
+    page: number,
+    showSpinner = true,
+    force = false
+  ) => {
     if (showSpinner) {
       setIsLoading(true);
     } else {
@@ -110,15 +137,54 @@ export function TenantManagement({
     }
 
     try {
-      const response = await fetch("/api/tenants");
-      const payload = await response.json();
+      const cacheKey = `${page}:${TENANTS_PER_PAGE}`;
+      const cached = tenantPageCache.get(cacheKey);
 
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error?.message ?? "Failed to load tenants");
+      if (!force && cached && cached.expiresAt > Date.now()) {
+        setTenants(sortTenants(cached.rows));
+        setTotalTenants(cached.total);
+        return;
       }
 
-      const nextTenants = sortTenants(payload.data as TenantRecord[]);
-      setTenants(nextTenants);
+      let requestPromise = inFlightTenantRequests.get(cacheKey);
+
+      if (!force && requestPromise) {
+        const payload = await requestPromise;
+        setTenants(sortTenants(payload.rows));
+        setTotalTenants(payload.total);
+        return;
+      }
+
+      requestPromise = fetch(`/api/tenants?page=${page}&limit=${TENANTS_PER_PAGE}`)
+        .then(async (response) => {
+          const payload = await response.json();
+
+          if (!response.ok || !payload.success) {
+            throw new Error(payload.error?.message ?? "Failed to load tenants");
+          }
+
+          const nextRows = payload.data as TenantRecord[];
+          const nextPayload = {
+            rows: nextRows,
+            total: payload.meta?.total ?? nextRows.length,
+          };
+
+          tenantPageCache.set(cacheKey, {
+            ...nextPayload,
+            expiresAt: Date.now() + TENANT_CACHE_TTL_MS,
+          });
+
+          return nextPayload;
+        })
+        .finally(() => {
+          inFlightTenantRequests.delete(cacheKey);
+        });
+
+      inFlightTenantRequests.set(cacheKey, requestPromise);
+
+      const payload = await requestPromise;
+      setTenants(sortTenants(payload.rows));
+      setTotalTenants(payload.total);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to load tenants";
@@ -130,19 +196,28 @@ export function TenantManagement({
   }, []);
 
   useEffect(() => {
-    void fetchTenants();
-  }, [fetchTenants]);
+    void fetchTenants(currentPage);
+  }, [currentPage, fetchTenants]);
 
   const displayedTenantCount = useMemo(
-    () => (tenants.length > 0 || !isLoading ? tenants.length : initialTenantCount ?? 0),
-    [initialTenantCount, isLoading, tenants.length]
+    () => (totalTenants > 0 || !isLoading ? totalTenants : initialTenantCount ?? 0),
+    [initialTenantCount, isLoading, totalTenants]
   );
+  const totalPages = Math.max(1, Math.ceil(displayedTenantCount / TENANTS_PER_PAGE));
+  const pageStart = displayedTenantCount === 0 ? 0 : (currentPage - 1) * TENANTS_PER_PAGE + 1;
+  const pageEnd = Math.min(currentPage * TENANTS_PER_PAGE, displayedTenantCount);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   useEffect(() => {
     if (!isLoading) {
-      updateTenantCount(tenants.length);
+      updateTenantCount(displayedTenantCount);
     }
-  }, [isLoading, tenants.length, updateTenantCount]);
+  }, [displayedTenantCount, isLoading, updateTenantCount]);
 
   function openCreateDialog() {
     setFormMode("create");
@@ -217,17 +292,14 @@ export function TenantManagement({
         throw new Error(payload.error?.message ?? "Failed to save tenant");
       }
 
-      const nextTenant = payload.data as TenantRecord;
+      const nextPage = formMode === "create" ? 1 : currentPage;
+      clearTenantPageCache();
 
-      setTenants((currentTenants) => {
-        return formMode === "create"
-          ? sortTenants([nextTenant, ...currentTenants])
-          : sortTenants(
-              currentTenants.map((tenant) =>
-                tenant.userId === nextTenant.userId ? nextTenant : tenant
-              )
-            );
-      });
+      if (nextPage !== currentPage) {
+        setCurrentPage(nextPage);
+      } else {
+        await fetchTenants(nextPage, false, true);
+      }
 
       toast.success(
         formMode === "create"
@@ -265,12 +337,15 @@ export function TenantManagement({
         authDeleted: boolean;
         authDeleteError: string | null;
       };
+      const nextPage =
+        tenants.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
+      clearTenantPageCache();
 
-      setTenants((currentTenants) => {
-        return currentTenants.filter(
-          (tenant) => tenant.userId !== deleteTarget.userId
-        );
-      });
+      if (nextPage !== currentPage) {
+        setCurrentPage(nextPage);
+      } else {
+        await fetchTenants(nextPage, false, true);
+      }
 
       if (result.authDeleted) {
         toast.success("Tenant deleted");
@@ -316,7 +391,7 @@ export function TenantManagement({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void fetchTenants(false)}
+                onClick={() => void fetchTenants(currentPage, false, true)}
                 disabled={isRefreshing}
               >
                 {isRefreshing ? (
@@ -462,11 +537,34 @@ export function TenantManagement({
 
         <CardFooter className="justify-between gap-3 border-t border-white/10 bg-white/5">
           <p className="text-sm text-white/50">
-            Owner actions are scoped to tenants inside this PG only.
+            Owner actions are scoped to tenants inside this PG only. Showing{" "}
+            {pageStart}-{pageEnd} of {displayedTenantCount}.
           </p>
-          <p className="text-sm text-white/40">
-            {displayedTenantCount} tenant{displayedTenantCount === 1 ? "" : "s"}
-          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="size-4" />
+              Previous
+            </Button>
+            <div className="min-w-20 text-center text-sm text-white/45">
+              Page {currentPage} / {totalPages}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setCurrentPage((page) => Math.min(totalPages, page + 1))
+              }
+              disabled={currentPage >= totalPages}
+            >
+              Next
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
         </CardFooter>
       </Card>
 

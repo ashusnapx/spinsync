@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { 
-  Menu, X, Home, WashingMachine,
+  Activity, CalendarClock, Menu, X, Home, WashingMachine,
   MessageSquare, UserCircle, LogOut, Globe
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ import { useDashboardStore } from "@/stores/dashboard-store";
 
 const navLinks = [
   { href: "/dashboard", label: "Overview", icon: Home },
+  { href: "/dashboard/activity", label: "Who's Using", icon: Activity },
   { href: "/dashboard/machines", label: "Machines", icon: WashingMachine },
   { href: "/dashboard/chat", label: "Community", icon: MessageSquare },
   { href: "/dashboard/profile", label: "Profile", icon: UserCircle },
@@ -74,7 +75,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     pgData?.name ?? (pgStatus === "loading" ? "Loading PG..." : "Setup Pending");
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex overflow-hidden font-sans">
+    <div className="h-screen bg-background text-foreground flex overflow-hidden font-sans">
       
       {/* Mobile Top Bar */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b border-border bg-background/80 backdrop-blur-xl z-40 flex items-center justify-between px-6">
@@ -105,7 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         initial={false}
         animate={{ x: sidebarOpen ? 0 : (typeof window !== "undefined" && window.innerWidth < 1024 ? -320 : 0) }}
         transition={{ type: "spring", damping: 24, stiffness: 200 }}
-        className="fixed top-0 bottom-0 left-0 w-72 bg-card border-r border-border z-50 flex flex-col pt-16 lg:pt-0"
+        className="fixed top-0 bottom-0 left-0 w-72 overflow-y-auto bg-card border-r border-border z-50 flex flex-col pt-16 lg:pt-0"
       >
         <div className="absolute top-4 right-4 lg:hidden">
           <button onClick={() => setSidebarOpen(false)} className="p-2 text-muted-foreground hover:text-foreground bg-secondary/50 rounded-full">
@@ -123,7 +124,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </Link>
         </div>
 
-        <nav className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto">
+        <nav className="flex-1 px-4 space-y-1 mt-4">
           {navLinks.map((link) => {
             const isActive = pathname === link.href;
             return (
@@ -150,7 +151,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
-        <div className="p-4 border-t border-border mt-auto space-y-2">
+        <div className="p-4 border-t border-border mt-auto space-y-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <CalendarClock className="size-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs uppercase tracking-[0.2em] text-white/35">
+                  Reminders
+                </div>
+                <div className="mt-1 text-sm font-medium text-white/85">
+                  Use the calendar link after starting a machine
+                </div>
+                <div className="mt-1 text-xs text-white/45">
+                  DhobiQ now hands reminders off to Google Calendar or Apple Calendar.
+                </div>
+              </div>
+            </div>
+          </div>
           <Link
             href="/"
             className="flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors w-full"
@@ -180,11 +199,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </motion.aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 lg:pl-72 flex flex-col min-h-screen relative pt-16 lg:pt-0">
+      <main className="flex-1 lg:pl-72 flex h-screen flex-col overflow-hidden relative pt-16 lg:pt-0">
         {/* Decorative background glow for main content */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[300px] bg-primary/5 blur-[120px] pointer-events-none" />
         
-        <div className="flex-1 p-6 md:p-10 lg:p-12 z-10">
+        <div className="flex-1 overflow-y-auto p-6 md:p-10 lg:p-12 z-10">
           <AnimatePresence mode="wait">
             <motion.div
               key={pathname}

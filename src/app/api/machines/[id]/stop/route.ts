@@ -1,14 +1,23 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { machines, machineSessions, queueEntries, notifications } from "@/db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { machines, machineSessions } from "@/db/schema";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
 import { requireOrganization, requireResourceAccess, withGuard } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
+import {
+  isMachineStartLocationAllowed,
+  isValidLatitude,
+  isValidLongitude,
+  MAX_MACHINE_GPS_ACCURACY_METERS,
+  normalizeAccuracy,
+  normalizeCoordinate,
+} from "@/lib/machine-location";
+import { recordVerification } from "@/lib/geo-server-utils";
 
 // ═══════════════════════════════════════════
 // POST /api/machines/[id]/stop — Stop using a machine
-// Transitions to GRACE_PERIOD and notifies next in queue
+// Frees the machine immediately after a location-verified stop
 // ═══════════════════════════════════════════
 
 export async function POST(
@@ -18,8 +27,15 @@ export async function POST(
   return withGuard(async () => {
     const { id: machineId } = await params;
     const ctx = await requireOrganization(request);
+    const body = (await request.json().catch(() => null)) as
+      | {
+          latitude?: number | string;
+          longitude?: number | string;
+          accuracy?: number | string;
+        }
+      | null;
 
-    // ── Find the active session for this user on this machine ──
+    // ── Find the current machine and active session ──
     const [machine] = await db
       .select()
       .from(machines)
@@ -33,29 +49,105 @@ export async function POST(
       return errors.machineUnavailable("Machine is not currently in use");
     }
 
-    // Get current session
-    const [activeSession] = machine.currentSessionId
-      ? await db
-          .select()
-          .from(machineSessions)
-          .where(eq(machineSessions.id, machine.currentSessionId))
-          .limit(1)
-      : [null];
+    if (ctx.orgRole !== "pg_admin") {
+      const machineLatitude = machine.latitude;
+      const machineLongitude = machine.longitude;
 
-    // Only session owner or admin can stop
-    if (
-      activeSession &&
-      activeSession.userId !== ctx.user.id &&
-      ctx.orgRole !== "owner" &&
-      ctx.orgRole !== "pg_admin"
-    ) {
-      return errors.forbidden("Only the session owner or admin can stop this machine");
+      if (
+        machineLatitude === null ||
+        machineLatitude === undefined ||
+        machineLongitude === null ||
+        machineLongitude === undefined ||
+        !isValidLatitude(machineLatitude) ||
+        !isValidLongitude(machineLongitude)
+      ) {
+        return errors.validation(
+          "This machine does not have location coordinates configured yet"
+        );
+      }
+
+      const latitude = normalizeCoordinate(body?.latitude);
+      const longitude = normalizeCoordinate(body?.longitude);
+      const accuracy = normalizeAccuracy(body?.accuracy);
+
+      if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
+        return errors.locationFailed(
+          "Enable precise location access and try stopping the machine again"
+        );
+      }
+
+      if (accuracy !== null && accuracy > MAX_MACHINE_GPS_ACCURACY_METERS) {
+        await recordVerification(
+          ctx.user.id,
+          { latitude, longitude, accuracy },
+          0,
+          false
+        );
+
+        return errors.locationFailed(
+          "Location accuracy is too low. Move closer to the machine and retry."
+        );
+      }
+
+      const verification = isMachineStartLocationAllowed(
+        { latitude, longitude, accuracy: accuracy ?? undefined },
+        {
+          latitude: machineLatitude,
+          longitude: machineLongitude,
+        }
+      );
+
+      await recordVerification(
+        ctx.user.id,
+        { latitude, longitude, accuracy: accuracy ?? undefined },
+        verification.passed ? 1 : 0,
+        verification.passed
+      );
+
+      if (!verification.passed) {
+        return errors.locationFailed(
+          `You must be near the machine to stop it. Current distance: ${Math.round(
+            verification.distanceMeters
+          )}m.`
+        );
+      }
+    }
+
+    // Get current session
+    let activeSession =
+      machine.currentSessionId
+        ? (
+            await db
+              .select()
+              .from(machineSessions)
+              .where(eq(machineSessions.id, machine.currentSessionId))
+              .limit(1)
+          )[0] ?? null
+        : null;
+
+    if (!activeSession) {
+      activeSession =
+        (
+          await db
+            .select()
+            .from(machineSessions)
+            .where(
+              and(
+                eq(machineSessions.machineId, machineId),
+                eq(machineSessions.orgId, ctx.orgId),
+                isNull(machineSessions.endedAt)
+              )
+            )
+            .orderBy(desc(machineSessions.startedAt))
+            .limit(1)
+        )[0] ?? null;
     }
 
     // ── End the session ──
     const now = new Date();
+    let durationMinutes: number | null = null;
     if (activeSession) {
-      const durationMinutes = Math.round(
+      durationMinutes = Math.round(
         (now.getTime() - new Date(activeSession.startedAt).getTime()) / 60000
       );
 
@@ -64,52 +156,20 @@ export async function POST(
         .set({
           endedAt: now,
           durationMinutes,
-          graceStartedAt: now,
+          graceStartedAt: null,
         })
         .where(eq(machineSessions.id, activeSession.id));
     }
 
-    // ── Transition to GRACE_PERIOD ──
+    // ── Free the machine immediately ──
     await db
       .update(machines)
       .set({
-        status: "grace_period",
+        status: "free",
+        currentSessionId: null,
         updatedAt: now,
       })
       .where(eq(machines.id, machineId));
-
-    // ── Notify next person in queue ──
-    const [nextInQueue] = await db
-      .select()
-      .from(queueEntries)
-      .where(eq(queueEntries.machineId, machineId))
-      .orderBy(asc(queueEntries.position))
-      .limit(1);
-
-    if (nextInQueue) {
-      await db.insert(notifications).values({
-        userId: nextInQueue.userId,
-        type: "your_turn",
-        title: "Your turn!",
-        body: `${machine.name} is finishing up. You're next in line! It will be free in ~5 minutes.`,
-        metadata: { machineId, machineName: machine.name },
-      });
-
-      // Mark as notified
-      await db
-        .update(queueEntries)
-        .set({ notifiedAt: now })
-        .where(eq(queueEntries.id, nextInQueue.id));
-    }
-
-    // ── Send clothes warning to the current user ──
-    await db.insert(notifications).values({
-      userId: ctx.user.id,
-      type: "clothes_warning",
-      title: "Collect your clothes!",
-      body: `Please collect your clothes from ${machine.name} within 5 minutes to avoid the machine being locked.`,
-      metadata: { machineId, machineName: machine.name },
-    });
 
     await audit({
       userId: ctx.user.id,
@@ -118,22 +178,18 @@ export async function POST(
       resourceId: machineId,
       metadata: {
         sessionId: activeSession?.id,
-        durationMinutes: activeSession
-          ? Math.round(
-              (now.getTime() - new Date(activeSession.startedAt).getTime()) / 60000
-            )
-          : null,
+        stoppedByUserId: ctx.user.id,
+        forceStoppedWithoutSession: !activeSession,
+        sessionOwnerUserId: activeSession?.userId ?? null,
+        durationMinutes,
       },
       ipAddress: getIpAddress(request),
       userAgent: getUserAgent(request),
     });
 
     return success({
-      status: "grace_period",
-      graceEndsAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
-      nextInQueue: nextInQueue
-        ? { userId: nextInQueue.userId, position: nextInQueue.position }
-        : null,
+      status: "free",
+      stoppedAt: now.toISOString(),
     });
   });
 }

@@ -145,7 +145,7 @@ export default function DashboardOverview() {
         variants={fadeUp}
         initial="hidden"
         animate="visible"
-        className="grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_0.8fr]"
+        className="grid grid-cols-1 gap-6 lg:grid-cols-2"
       >
         <AnimatedCard className="p-6">
           <div className="flex items-start gap-4">
@@ -171,8 +171,9 @@ export default function DashboardOverview() {
             <div>
               <h3 className="text-xl font-bold">Current Rollout</h3>
               <p className="mt-2 text-sm leading-6 text-white/60">
-                Live queue and gamification are currently disabled. Machine
-                controls, tenant management, and community chat remain active.
+                Gamification, the public queue, and in-app machine alerts remain
+                disabled. Machine controls, tenant management, activity tracking,
+                community chat, and calendar reminder handoff are active.
               </p>
             </div>
           </div>

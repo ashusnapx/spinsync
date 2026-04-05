@@ -5,6 +5,7 @@ import { eq, and, desc, lt } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
 import { requireOrganization, withGuard } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
+import { getOrgUserDisplayMap } from "@/lib/org-user-display";
 
 // ═══════════════════════════════════════════
 // In-memory rate limiting for chat (per-process)
@@ -53,7 +54,6 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(chatMessages.orgId, ctx.orgId),
-          eq(chatMessages.isDeleted, false),
           ...(beforeDate ? [lt(chatMessages.createdAt, beforeDate)] : [])
         )
       )
@@ -61,9 +61,10 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     const messages = await query;
+    const decoratedMessages = await decorateChatMessages(ctx.orgId, messages);
 
     return success({
-      messages: messages.reverse(), // chronological order
+      messages: decoratedMessages.reverse(), // chronological order
       hasMore: messages.length === limit,
     });
   });
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
       userAgent: getUserAgent(request),
     });
 
-    return success(message, 201);
+    return success((await decorateChatMessages(ctx.orgId, [message]))[0], 201);
   });
 }
 
@@ -160,24 +161,53 @@ export async function DELETE(request: NextRequest) {
       return errors.forbidden("Only message owner or admin can delete messages");
     }
 
-    // Soft-delete
-    await db
+    if (message.isDeleted) {
+      return success(message);
+    }
+
+    const deletedByAdmin =
+      message.userId !== ctx.user.id &&
+      (ctx.orgRole === "owner" || ctx.orgRole === "pg_admin");
+
+    const [updatedMessage] = await db
       .update(chatMessages)
-      .set({ isDeleted: true })
-      .where(eq(chatMessages.id, messageId));
+      .set({
+        content: "",
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedByUserId: ctx.user.id,
+        deletedByAdmin,
+      })
+      .where(eq(chatMessages.id, messageId))
+      .returning();
 
     await audit({
       userId: ctx.user.id,
       action: "chat.message_deleted",
       resource: "chat",
       resourceId: messageId,
-      metadata: { originalUserId: message.userId },
+      metadata: { originalUserId: message.userId, deletedByAdmin },
       ipAddress: getIpAddress(request),
       userAgent: getUserAgent(request),
     });
 
-    return success({ deleted: true });
+    return success((await decorateChatMessages(ctx.orgId, [updatedMessage]))[0]);
   });
+}
+
+async function decorateChatMessages(
+  orgId: string,
+  messages: Array<typeof chatMessages.$inferSelect>
+) {
+  const userDisplayMap = await getOrgUserDisplayMap(
+    orgId,
+    messages.map((message) => message.userId)
+  );
+
+  return messages.map((message) => ({
+    ...message,
+    userName: userDisplayMap.get(message.userId)?.chatLabel ?? message.userName,
+  }));
 }
 
 async function purgeExpiredChatMessages() {

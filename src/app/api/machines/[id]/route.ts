@@ -5,6 +5,11 @@ import { eq } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
 import { requireRole, requireResourceAccess, withGuard } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
+import {
+  isValidLatitude,
+  isValidLongitude,
+  normalizeCoordinate,
+} from "@/lib/machine-location";
 
 // ═══════════════════════════════════════════
 // DELETE /api/machines/[id] — Delete a machine (admin only)
@@ -65,7 +70,7 @@ export async function PATCH(
     const ctx = await requireRole(request, "pg_admin", "owner");
     const { id } = await params;
     const body = await request.json();
-    const { name, type, status, floor, locationDescription } = body;
+    const { name, type, status, floor, latitude, longitude } = body;
 
     if (!id) {
       return errors.validation("Machine ID is required");
@@ -95,7 +100,20 @@ export async function PATCH(
     if (type) updateData.type = type;
     if (status) updateData.status = status;
     if (floor !== undefined) updateData.floor = floor;
-    if (locationDescription !== undefined) updateData.location = locationDescription;
+
+    const parsedLatitude = normalizeCoordinate(latitude);
+    const parsedLongitude = normalizeCoordinate(longitude);
+
+    if (latitude !== undefined || longitude !== undefined) {
+      if (!isValidLatitude(parsedLatitude) || !isValidLongitude(parsedLongitude)) {
+        return errors.validation(
+          "Valid machine latitude and longitude are required"
+        );
+      }
+
+      updateData.latitude = parsedLatitude;
+      updateData.longitude = parsedLongitude;
+    }
 
     const [updated] = await db
       .update(machines)

@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
+  CalendarClock,
+  ExternalLink,
   Loader2,
+  LocateFixed,
   Pencil,
   Play,
   Plus,
@@ -21,6 +24,7 @@ import { fadeUp, staggerContainer } from "@/components/ui/Animations";
 import { MachineCard, type MachineCardAction, type MachineCardStatus } from "@/components/ui/MachineCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -31,10 +35,20 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { buildAppleCalendarDataUrl, buildGoogleCalendarUrl } from "@/lib/calendar";
+import { formatMachineCoordinates } from "@/lib/machine-location";
+import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
 
 type MachineType = "washing_machine" | "dryer" | "iron" | "dishwasher";
+
+interface MachineSessionSummary {
+  id: string;
+  machineId: string;
+  userId: string;
+  userName: string | null;
+  startedAt: string;
+}
 
 interface MachineRecord {
   id: string;
@@ -44,8 +58,11 @@ interface MachineRecord {
   orgId: string;
   floor: string | null;
   location: string | null;
+  latitude: number | null;
+  longitude: number | null;
   qrSecret: string | null;
   currentSessionId: string | null;
+  currentSession: MachineSessionSummary | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -54,15 +71,51 @@ interface MachineFormState {
   name: string;
   type: MachineType;
   floor: string;
-  locationDescription: string;
+  latitude: string;
+  longitude: string;
 }
 
 const EMPTY_MACHINE_FORM: MachineFormState = {
   name: "",
   type: "washing_machine",
   floor: "",
-  locationDescription: "",
+  latitude: "",
+  longitude: "",
 };
+
+interface ReminderDialogState {
+  machineName: string;
+  reminderAt: string;
+  cycleMinutes: number;
+  googleCalendarUrl: string;
+  appleCalendarUrl: string;
+}
+
+interface MachineMutationPayload {
+  data?: Record<string, unknown>;
+}
+
+interface MachineStartMutationData {
+  reminderAt?: string;
+  machineName?: string;
+  session?: {
+    startedAt?: string;
+  };
+}
+
+const MACHINE_CACHE_TTL_MS = 30000;
+let machinesCache:
+  | {
+      data: MachineRecord[];
+      expiresAt: number;
+    }
+  | null = null;
+let inFlightMachinesRequest: Promise<MachineRecord[]> | null = null;
+
+function clearMachinesCache() {
+  machinesCache = null;
+  inFlightMachinesRequest = null;
+}
 
 export default function MachinesPage() {
   const pgData = useDashboardStore((state) => state.pgData);
@@ -79,6 +132,15 @@ export default function MachinesPage() {
   const [formState, setFormState] = useState<MachineFormState>(EMPTY_MACHINE_FORM);
   const [formError, setFormError] = useState("");
   const [isSavingMachine, setIsSavingMachine] = useState(false);
+  const [isCapturingCoordinates, setIsCapturingCoordinates] = useState(false);
+  const [coordinateHint, setCoordinateHint] = useState("");
+  const [hasRequestedAutofill, setHasRequestedAutofill] = useState(false);
+  const [startMachineTarget, setStartMachineTarget] = useState<MachineRecord | null>(null);
+  const [displayedCycleMinutes, setDisplayedCycleMinutes] = useState("45");
+  const [startMachineError, setStartMachineError] = useState("");
+  const [reminderDialog, setReminderDialog] = useState<ReminderDialogState | null>(
+    null
+  );
   const [qrState, setQrState] = useState<{
     machine: MachineRecord | null;
     qrDataUrl: string;
@@ -99,7 +161,13 @@ export default function MachinesPage() {
     }
   }, [fetchPgData, pgData, pgStatus]);
 
-  const fetchMachines = useCallback(async (showSpinner = true) => {
+  const fetchMachines = useCallback(async ({
+    showSpinner = true,
+    force = false,
+  }: {
+    showSpinner?: boolean;
+    force?: boolean;
+  } = {}) => {
     if (showSpinner) {
       setIsLoading(true);
     } else {
@@ -107,17 +175,40 @@ export default function MachinesPage() {
     }
 
     try {
-      const response = await fetch("/api/machines", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const payload = await response.json();
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error?.message ?? "Failed to load machines");
+      if (!force && machinesCache && machinesCache.expiresAt > Date.now()) {
+        setMachines(sortMachines(machinesCache.data));
+        return;
       }
 
-      setMachines(sortMachines(payload.data as MachineRecord[]));
+      if (!force && inFlightMachinesRequest) {
+        setMachines(sortMachines(await inFlightMachinesRequest));
+        return;
+      }
+
+      inFlightMachinesRequest = fetch("/api/machines", {
+        credentials: "include",
+        cache: "no-store",
+      })
+        .then(async (response) => {
+          const payload = await response.json();
+
+          if (!response.ok || !payload.success) {
+            throw new Error(payload.error?.message ?? "Failed to load machines");
+          }
+
+          const nextMachines = payload.data as MachineRecord[];
+          machinesCache = {
+            data: nextMachines,
+            expiresAt: Date.now() + MACHINE_CACHE_TTL_MS,
+          };
+
+          return nextMachines;
+        })
+        .finally(() => {
+          inFlightMachinesRequest = null;
+        });
+
+      setMachines(sortMachines(await inFlightMachinesRequest));
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to load machines";
@@ -131,11 +222,23 @@ export default function MachinesPage() {
   useEffect(() => {
     void fetchMachines();
 
-    const interval = window.setInterval(() => {
-      void fetchMachines(false);
-    }, 15000);
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        return;
+      }
 
-    return () => window.clearInterval(interval);
+      if (machinesCache && machinesCache.expiresAt > Date.now()) {
+        return;
+      }
+
+      void fetchMachines({ showSpinner: false });
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [fetchMachines]);
 
   const isAdmin = pgData?.role === "pg_admin";
@@ -145,7 +248,7 @@ export default function MachinesPage() {
       all: machines,
       available: machines.filter((machine) => machine.status === "free"),
       active: machines.filter((machine) =>
-        ["occupied", "grace_period", "locked"].includes(machine.status)
+        ["occupied", "locked"].includes(machine.status)
       ),
       attention: machines.filter((machine) =>
         ["maintenance", "out_of_order", "locked"].includes(machine.status)
@@ -154,28 +257,34 @@ export default function MachinesPage() {
     [machines]
   );
 
-  const handleStartMachine = async (machineId: string) => {
-    await runMachineMutation({
-      machineId,
-      request: () =>
-        fetch(`/api/machines/${machineId}/start`, {
-          method: "POST",
-        }),
-      successMessage: "Machine started",
-      successDescription: "Session is live and the machine is now occupied.",
-    });
+  const handleStartMachine = (machine: MachineRecord) => {
+    setStartMachineTarget(machine);
+    setDisplayedCycleMinutes("45");
+    setStartMachineError("");
   };
 
   const handleStopMachine = async (machineId: string) => {
-    await runMachineMutation({
-      machineId,
-      request: () =>
-        fetch(`/api/machines/${machineId}/stop`, {
-          method: "POST",
-        }),
-      successMessage: "Machine moved to grace period",
-      successDescription: "The wash cycle has been stopped successfully.",
-    });
+    try {
+      const currentLocation = await getBrowserCoordinates();
+
+      await runMachineMutation({
+        machineId,
+        request: () =>
+          fetch(`/api/machines/${machineId}/stop`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(currentLocation),
+          }),
+        successMessage: "Machine marked available",
+        successDescription: "Cycle closed and the machine is ready for the next use.",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to verify your location";
+      toast.error(message);
+    }
   };
 
   const handleUpdateStatus = async (
@@ -214,6 +323,7 @@ export default function MachinesPage() {
         }),
       successMessage: "Machine deleted",
       onSuccess: () => {
+        clearMachinesCache();
         setMachines((currentMachines) =>
           currentMachines.filter((machine) => machine.id !== machineId)
         );
@@ -228,6 +338,89 @@ export default function MachinesPage() {
       },
       skipRefresh: true,
     });
+  };
+
+  const handleConfirmStartMachine = async () => {
+    if (!startMachineTarget) {
+      return;
+    }
+
+    const cycleMinutes = Number(displayedCycleMinutes);
+
+    if (!Number.isFinite(cycleMinutes) || cycleMinutes < 1 || cycleMinutes > 240) {
+      setStartMachineError("Enter the machine's displayed time between 1 and 240 minutes.");
+      return;
+    }
+
+    setStartMachineError("");
+
+    try {
+      const currentLocation = await getBrowserCoordinates();
+
+      await runMachineMutation({
+        machineId: startMachineTarget.id,
+        request: () =>
+          fetch(`/api/machines/${startMachineTarget.id}/start`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              ...currentLocation,
+              cycleMinutes,
+            }),
+          }),
+        successMessage: "Machine started",
+        successDescription:
+          "Session is live. Add the pickup reminder to your calendar before leaving.",
+        onSuccess: (payload) => {
+          const startPayload = payload.data as MachineStartMutationData | undefined;
+          const reminderAt = String(startPayload?.reminderAt ?? "");
+          const machineName = String(
+            startPayload?.machineName ?? startMachineTarget.name
+          );
+          const startedAt = String(
+            startPayload?.session?.startedAt ?? new Date().toISOString()
+          );
+          const reminderDescription = `Machine displayed ${cycleMinutes} minutes. DhobiQ added a 30 minute pickup buffer.`;
+          const reminderEndAt = new Date(reminderAt);
+          reminderEndAt.setMinutes(reminderEndAt.getMinutes() + 10);
+
+          setReminderDialog({
+            machineName,
+            reminderAt,
+            cycleMinutes,
+            googleCalendarUrl: buildGoogleCalendarUrl({
+              title: `Collect clothes from ${machineName}`,
+              description: reminderDescription,
+              startAt: reminderAt,
+              endAt: reminderEndAt.toISOString(),
+              location: formatMachineCoordinates(
+                startMachineTarget.latitude,
+                startMachineTarget.longitude
+              ),
+            }),
+            appleCalendarUrl: buildAppleCalendarDataUrl({
+              title: `Collect clothes from ${machineName}`,
+              description: `${reminderDescription}\nStarted at ${formatDateTime(
+                startedAt
+              )}.`,
+              startAt: reminderAt,
+              endAt: reminderEndAt.toISOString(),
+              location: formatMachineCoordinates(
+                startMachineTarget.latitude,
+                startMachineTarget.longitude
+              ),
+            }),
+          });
+          setStartMachineTarget(null);
+        },
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to verify your location";
+      setStartMachineError(message);
+    }
   };
 
   const handleShowQr = async (machine: MachineRecord) => {
@@ -279,6 +472,8 @@ export default function MachinesPage() {
       name: `Washer ${machines.length + 1}`,
     });
     setFormError("");
+    setCoordinateHint("");
+    setHasRequestedAutofill(false);
     setIsFormOpen(true);
   };
 
@@ -289,9 +484,18 @@ export default function MachinesPage() {
       name: machine.name,
       type: machine.type,
       floor: machine.floor ?? "",
-      locationDescription: machine.location ?? "",
+      latitude:
+        typeof machine.latitude === "number" ? String(machine.latitude) : "",
+      longitude:
+        typeof machine.longitude === "number" ? String(machine.longitude) : "",
     });
     setFormError("");
+    setCoordinateHint(
+      machine.latitude !== null && machine.longitude !== null
+        ? "Stored machine coordinates loaded."
+        : ""
+    );
+    setHasRequestedAutofill(false);
     setIsFormOpen(true);
   };
 
@@ -300,7 +504,55 @@ export default function MachinesPage() {
     setFormError("");
     setEditingMachine(null);
     setFormState(EMPTY_MACHINE_FORM);
+    setCoordinateHint("");
+    setHasRequestedAutofill(false);
   };
+
+  const captureCoordinatesForForm = useCallback(async () => {
+    setIsCapturingCoordinates(true);
+    setCoordinateHint("");
+
+    try {
+      const currentLocation = await getBrowserCoordinates();
+      setFormState((current) => ({
+        ...current,
+        latitude: String(currentLocation.latitude),
+        longitude: String(currentLocation.longitude),
+      }));
+      setCoordinateHint(
+        `Auto-filled from your device at ${formatDateTime(
+          new Date().toISOString()
+        )}`
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to fetch location";
+      setCoordinateHint(message);
+      setFormError(message);
+    } finally {
+      setIsCapturingCoordinates(false);
+      setHasRequestedAutofill(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isFormOpen || hasRequestedAutofill) {
+      return;
+    }
+
+    if (formState.latitude.trim() && formState.longitude.trim()) {
+      setHasRequestedAutofill(true);
+      return;
+    }
+
+    void captureCoordinatesForForm();
+  }, [
+    captureCoordinatesForForm,
+    formState.latitude,
+    formState.longitude,
+    hasRequestedAutofill,
+    isFormOpen,
+  ]);
 
   const handleSaveMachine = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -312,6 +564,11 @@ export default function MachinesPage() {
       return;
     }
 
+    if (!formState.latitude.trim() || !formState.longitude.trim()) {
+      setFormError("Machine latitude and longitude are required.");
+      return;
+    }
+
     setIsSavingMachine(true);
 
     try {
@@ -319,7 +576,8 @@ export default function MachinesPage() {
         name,
         type: formState.type,
         floor: formState.floor.trim() || null,
-        locationDescription: formState.locationDescription.trim() || null,
+        latitude: formState.latitude.trim(),
+        longitude: formState.longitude.trim(),
       };
 
       const response = await fetch(
@@ -341,10 +599,7 @@ export default function MachinesPage() {
       }
 
       if (formMode === "create") {
-        const createdMachine = body.data as MachineRecord;
-        setMachines((currentMachines) =>
-          sortMachines([...currentMachines, createdMachine])
-        );
+        clearMachinesCache();
         updatePgData((currentPgData) =>
           currentPgData
             ? {
@@ -353,16 +608,11 @@ export default function MachinesPage() {
               }
             : currentPgData
         );
+        await fetchMachines({ showSpinner: false, force: true });
         toast.success("Machine created");
       } else {
-        const updatedMachine = body.data as MachineRecord;
-        setMachines((currentMachines) =>
-          sortMachines(
-            currentMachines.map((machine) =>
-              machine.id === updatedMachine.id ? updatedMachine : machine
-            )
-          )
-        );
+        clearMachinesCache();
+        await fetchMachines({ showSpinner: false, force: true });
         toast.success("Machine updated");
       }
 
@@ -388,7 +638,7 @@ export default function MachinesPage() {
     request: () => Promise<Response>;
     successMessage: string;
     successDescription?: string;
-    onSuccess?: () => void;
+    onSuccess?: (payload: MachineMutationPayload) => void;
     skipRefresh?: boolean;
   }) => {
     setBusyMachineId(machineId);
@@ -401,10 +651,11 @@ export default function MachinesPage() {
         throw new Error(payload.error?.message ?? "Request failed");
       }
 
-      onSuccess?.();
+      clearMachinesCache();
+      onSuccess?.(payload as MachineMutationPayload);
 
       if (!skipRefresh) {
-        await fetchMachines(false);
+        await fetchMachines({ showSpinner: false, force: true });
       }
 
       toast.success(successMessage, {
@@ -434,8 +685,8 @@ export default function MachinesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Machine Operations</h1>
           <p className="mt-1 text-muted-foreground">
             {isAdmin
-              ? "Manage machine lifecycle, QR access, and operational status."
-              : "Start and stop machines with live status visibility."}
+              ? "Manage coordinates, QR access, and live machine status without the old grace-period flow."
+              : "Start and stop machines only when you are physically near them, then save the pickup reminder to your calendar."}
           </p>
         </div>
 
@@ -443,7 +694,7 @@ export default function MachinesPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void fetchMachines(false)}
+            onClick={() => void fetchMachines({ showSpinner: false, force: true })}
             disabled={isRefreshing}
           >
             {isRefreshing ? (
@@ -534,6 +785,96 @@ export default function MachinesPage() {
       </Tabs>
 
       <Dialog
+        open={Boolean(startMachineTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setStartMachineTarget(null);
+            setStartMachineError("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg border border-white/10 bg-[#11131a] text-white">
+          <DialogHeader>
+            <DialogTitle>
+              {startMachineTarget
+                ? `Start ${startMachineTarget.name}`
+                : "Start machine"}
+            </DialogTitle>
+            <DialogDescription className="text-white/60">
+              Enter the time currently shown on the machine. DhobiQ will add a
+              30 minute pickup buffer and give you calendar links instead of
+              in-app alerts.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+              <div className="text-sm font-medium text-white">
+                Machine display time
+              </div>
+              <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="machine-cycle-minutes">Minutes shown</Label>
+                  <Input
+                    id="machine-cycle-minutes"
+                    inputMode="numeric"
+                    value={displayedCycleMinutes}
+                    onChange={(event) => setDisplayedCycleMinutes(event.target.value)}
+                    placeholder="45"
+                  />
+                </div>
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary">
+                  Pickup reminder = machine time + 30 mins
+                </div>
+              </div>
+
+              {startMachineTarget ? (
+                <div className="mt-4 text-sm text-white/50">
+                  Coordinates:{" "}
+                  {formatMachineCoordinates(
+                    startMachineTarget.latitude,
+                    startMachineTarget.longitude
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {startMachineError ? (
+              <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+                {startMachineError}
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="-mx-0 -mb-0 rounded-xl border-0 bg-transparent p-0 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setStartMachineTarget(null);
+                setStartMachineError("");
+              }}
+              disabled={busyMachineId === startMachineTarget?.id}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleConfirmStartMachine()}
+              disabled={busyMachineId === startMachineTarget?.id}
+            >
+              {busyMachineId === startMachineTarget?.id ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Play className="size-4" />
+              )}
+              Start machine
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={isFormOpen}
         onOpenChange={(open) => {
           if (!open) {
@@ -549,8 +890,8 @@ export default function MachinesPage() {
               {formMode === "create" ? "Add machine" : "Edit machine"}
             </DialogTitle>
             <DialogDescription className="text-white/60">
-              Capture the machine name, type, and physical placement so residents
-              know exactly what they are operating.
+              Capture the machine name, type, and exact coordinates. Residents
+              must be near these coordinates before they can start the machine.
             </DialogDescription>
           </DialogHeader>
 
@@ -607,20 +948,71 @@ export default function MachinesPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="machine-location">Location details</Label>
-              <Textarea
-                id="machine-location"
-                value={formState.locationDescription}
-                onChange={(event) =>
-                  setFormState((current) => ({
-                    ...current,
-                    locationDescription: event.target.value,
-                  }))
-                }
-                placeholder="Laundry room near the rear staircase"
-                className="min-h-28"
-              />
+            <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-medium text-white">
+                    Machine coordinates
+                  </div>
+                  <div className="mt-1 text-sm text-white/50">
+                    Auto-fill the latitude and longitude from the machine&apos;s
+                    current position.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void captureCoordinatesForForm()}
+                  disabled={isCapturingCoordinates}
+                >
+                  {isCapturingCoordinates ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <LocateFixed className="size-4" />
+                  )}
+                  Refresh coordinates
+                </Button>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="machine-latitude">Latitude</Label>
+                  <Input
+                    id="machine-latitude"
+                    value={formState.latitude}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        latitude: event.target.value,
+                      }))
+                    }
+                    placeholder="18.52043"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="machine-longitude">Longitude</Label>
+                  <Input
+                    id="machine-longitude"
+                    value={formState.longitude}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        longitude: event.target.value,
+                      }))
+                    }
+                    placeholder="73.85674"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white/55">
+                {coordinateHint ||
+                  `Current entry: ${formatMachineCoordinates(
+                    formState.latitude.trim() ? Number(formState.latitude) : null,
+                    formState.longitude.trim() ? Number(formState.longitude) : null
+                  )}`}
+              </div>
             </div>
 
             {formError && (
@@ -650,6 +1042,75 @@ export default function MachinesPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(reminderDialog)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReminderDialog(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg border border-white/10 bg-[#11131a] text-white">
+          <DialogHeader>
+            <DialogTitle>Pickup reminder ready</DialogTitle>
+            <DialogDescription className="text-white/60">
+              Add this to your calendar now so Google Calendar or Apple Calendar
+              can remind you when it is time to collect your clothes.
+            </DialogDescription>
+          </DialogHeader>
+
+          {reminderDialog ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+                <div className="text-xs uppercase tracking-[0.18em] text-white/40">
+                  Reminder
+                </div>
+                <div className="mt-2 text-xl font-semibold text-white">
+                  {reminderDialog.machineName}
+                </div>
+                <div className="mt-1 text-sm text-white/55">
+                  Machine time {reminderDialog.cycleMinutes} mins + 30 mins buffer
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-sm text-primary">
+                  <CalendarClock className="size-4" />
+                  Collect clothes at {formatDateTime(reminderDialog.reminderAt)}
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <a
+                  href={reminderDialog.googleCalendarUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(buttonVariants({ variant: "default" }), "w-full")}
+                >
+                  <ExternalLink className="size-4" />
+                  Google Calendar
+                </a>
+                <a
+                  href={reminderDialog.appleCalendarUrl}
+                  download={`${slugify(reminderDialog.machineName)}-pickup-reminder.ics`}
+                  className={cn(buttonVariants({ variant: "outline" }), "w-full")}
+                >
+                  <CalendarClock className="size-4" />
+                  Apple/iPhone Calendar
+                </a>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter className="-mx-0 -mb-0 rounded-xl border-0 bg-transparent p-0 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setReminderDialog(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -737,7 +1198,7 @@ function MachineGrid({
   machines: MachineRecord[];
   isAdmin: boolean;
   busyMachineId: string | null;
-  onStart: (machineId: string) => void;
+  onStart: (machine: MachineRecord) => void;
   onStop: (machineId: string) => void;
   onEdit: (machine: MachineRecord) => void;
   onDelete: (machineId: string) => void;
@@ -770,7 +1231,10 @@ function MachineGrid({
             type={machine.type}
             status={machine.status}
             floor={machine.floor}
-            location={machine.location}
+            latitude={machine.latitude}
+            longitude={machine.longitude}
+            currentSessionUserName={machine.currentSession?.userName ?? null}
+            currentSessionStartedAt={machine.currentSession?.startedAt ?? null}
             primaryAction={getPrimaryAction({
               machine,
               isAdmin,
@@ -819,7 +1283,7 @@ function getPrimaryAction({
   machine: MachineRecord;
   isAdmin: boolean;
   busyMachineId: string | null;
-  onStart: (machineId: string) => void;
+  onStart: (machine: MachineRecord) => void;
   onStop: (machineId: string) => void;
   onStatusChange: (
     machineId: string,
@@ -834,11 +1298,11 @@ function getPrimaryAction({
         label: "Start Machine",
         icon: Play,
         disabled,
-        onClick: () => onStart(machine.id),
+        onClick: () => onStart(machine),
       };
     case "occupied":
       return {
-        label: isAdmin ? "Stop Cycle" : "Stop If Mine",
+        label: isAdmin ? "Stop Cycle" : "Stop Nearby Cycle",
         icon: StopCircle,
         disabled,
         onClick: () => onStop(machine.id),
@@ -846,14 +1310,14 @@ function getPrimaryAction({
     case "grace_period":
       return isAdmin
         ? {
-            label: "Release Machine",
+            label: "Clear Legacy State",
             icon: RotateCcw,
             disabled,
             onClick: () => onStatusChange(machine.id, "free"),
           }
         : {
-            label: "Grace Period Active",
-            icon: Loader2,
+            label: "Reset In Progress",
+            icon: AlertTriangle,
             variant: "secondary",
             disabled: true,
             onClick: () => undefined,
@@ -956,6 +1420,14 @@ function sortMachines(machines: MachineRecord[]) {
   return [...machines].sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
@@ -963,4 +1435,43 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+async function getBrowserCoordinates() {
+  if (typeof window === "undefined" || !("geolocation" in navigator)) {
+    throw new Error("Geolocation is not available in this browser");
+  }
+
+  return new Promise<{
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+  }>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy:
+            typeof position.coords.accuracy === "number"
+              ? position.coords.accuracy
+              : null,
+        });
+      },
+      (error) => {
+        reject(
+          new Error(
+            error.code === error.PERMISSION_DENIED
+              ? "Location permission is required for secure machine access"
+              : "Unable to fetch your current location"
+          )
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0,
+      }
+    );
+  });
 }

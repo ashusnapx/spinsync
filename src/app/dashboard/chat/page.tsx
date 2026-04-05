@@ -30,6 +30,9 @@ interface ChatMessage {
   userName: string;
   content: string;
   isDeleted: boolean;
+  deletedAt?: string | null;
+  deletedByUserId?: string | null;
+  deletedByAdmin?: boolean;
   createdAt: string;
 }
 
@@ -175,7 +178,9 @@ export default function ChatPage() {
       }
 
       setMessages((currentMessages) =>
-        currentMessages.filter((message) => message.id !== messageId)
+        currentMessages.map((message) =>
+          message.id === messageId ? (payload.data as ChatMessage) : message
+        )
       );
       toast.success("Message deleted");
     } catch (error) {
@@ -241,27 +246,43 @@ export default function ChatPage() {
                     className={`max-w-[82%] ${isMe ? "items-end" : "items-start"} flex flex-col`}
                   >
                     <div className="mb-1 flex items-center gap-2 px-1 text-xs text-white/45">
-                      {!isMe && <span className="font-medium text-white/70">{message.userName}</span>}
+                      <span className="font-medium text-white/70">{message.userName}</span>
                       <span>{formatTime(message.createdAt)}</span>
                     </div>
                     <div
                       className={`group rounded-2xl border px-4 py-3 text-sm leading-6 ${
-                        isMe
+                        message.isDeleted
+                          ? "border-white/10 bg-black/10 text-white/55"
+                          : isMe
                           ? "rounded-tr-sm border-primary/20 bg-gradient-to-br from-primary to-violet-600 text-primary-foreground"
                           : "rounded-tl-sm border-white/10 bg-black/15 text-white/85"
                       }`}
                     >
                       <div className="whitespace-pre-wrap break-words">
-                        {message.content}
+                        {message.isDeleted ? (
+                          <span className="italic">
+                            {message.deletedByAdmin
+                              ? "Message deleted by admin"
+                              : "This message was deleted"}
+                          </span>
+                        ) : (
+                          message.content
+                        )}
                       </div>
 
                       <div
                         className={`mt-3 flex items-center gap-2 text-[11px] ${
-                          isMe ? "justify-end text-primary-foreground/75" : "text-white/35"
+                          message.isDeleted
+                            ? "text-white/35"
+                            : isMe
+                            ? "justify-end text-primary-foreground/75"
+                            : "text-white/35"
                         }`}
                       >
-                        {isMe ? <CheckCheck className="size-3.5" /> : null}
-                        {canDelete ? (
+                        {!message.isDeleted && isMe ? (
+                          <CheckCheck className="size-3.5" />
+                        ) : null}
+                        {canDelete && !message.isDeleted ? (
                           <button
                             type="button"
                             className="inline-flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"

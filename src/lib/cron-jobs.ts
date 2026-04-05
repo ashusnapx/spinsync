@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { db, pool } from "@/db";
+import { db } from "@/db";
 import {
   machines,
   machineSessions,
@@ -46,15 +46,6 @@ export function initCronJobs() {
     }
   });
 
-  // ── Every 5 min: Process grace periods ──
-  cron.schedule("*/5 * * * *", async () => {
-    try {
-      await processGracePeriods();
-    } catch (err) {
-      console.error("[CRON] Grace period processing failed:", err);
-    }
-  });
-
   // ── Every 1 hour: Check subscription expiries ──
   cron.schedule("0 * * * *", async () => {
     try {
@@ -91,12 +82,10 @@ export function initCronJobs() {
 
 /**
  * Check for sessions with stale heartbeats.
- * - 10 min: warn user
  * - 15 min: auto-end session
  */
 async function checkHeartbeats() {
   const now = new Date();
-  const warnThreshold = new Date(now.getTime() - 10 * 60 * 1000);
   const expireThreshold = new Date(now.getTime() - 15 * 60 * 1000);
 
   // ── Auto-end expired sessions (15+ min no heartbeat) ──
@@ -134,14 +123,6 @@ async function checkHeartbeats() {
       })
       .where(eq(machines.id, session.machineId));
 
-    // Notify user
-    await db.insert(notifications).values({
-      userId: session.userId,
-      type: "system",
-      title: "Session Auto-Ended",
-      body: "Your session was automatically ended due to inactivity. Please collect your clothes.",
-    });
-
     await audit({
       userId: session.userId,
       action: "machine.auto_ended",
@@ -151,88 +132,6 @@ async function checkHeartbeats() {
     });
   }
 
-  // ── Warn sessions approaching expiry (10-15 min no heartbeat) ──
-  const warningSessions = await db
-    .select()
-    .from(machineSessions)
-    .where(
-      and(
-        sql`ended_at IS NULL`,
-        lt(machineSessions.heartbeatAt, warnThreshold),
-        sql`heartbeat_at >= ${expireThreshold}`
-      )
-    );
-
-  for (const session of warningSessions) {
-    await db.insert(notifications).values({
-      userId: session.userId,
-      type: "system",
-      title: "Are you still there?",
-      body: "Your session will be auto-ended in 5 minutes due to inactivity. Open the app to keep it active.",
-    });
-
-    await audit({
-      userId: session.userId,
-      action: "machine.heartbeat_missed",
-      resource: "machine",
-      resourceId: session.machineId,
-      metadata: { sessionId: session.id },
-    });
-  }
-}
-
-/**
- * Process machines in GRACE_PERIOD state.
- * After 5 minutes → LOCKED (admin must manually unlock).
- */
-async function processGracePeriods() {
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-
-  // Find sessions with grace that's expired
-  const expiredGrace = await db
-    .select()
-    .from(machineSessions)
-    .where(
-      and(
-        sql`grace_started_at IS NOT NULL`,
-        lt(machineSessions.graceStartedAt, fiveMinutesAgo),
-        sql`ended_at IS NOT NULL`
-      )
-    );
-
-  for (const session of expiredGrace) {
-    // Check if machine is still in grace_period
-    const [machine] = await db
-      .select()
-      .from(machines)
-      .where(
-        and(eq(machines.id, session.machineId), eq(machines.status, "grace_period"))
-      )
-      .limit(1);
-
-    if (machine) {
-      await db
-        .update(machines)
-        .set({ status: "locked", updatedAt: new Date() })
-        .where(eq(machines.id, session.machineId));
-
-      // Notify the user
-      await db.insert(notifications).values({
-        userId: session.userId,
-        type: "clothes_warning",
-        title: "⚠️ Machine Locked!",
-        body: `${machine.name} has been locked. Please collect your clothes immediately and notify the admin.`,
-      });
-
-      await audit({
-        userId: session.userId,
-        action: "machine.locked",
-        resource: "machine",
-        resourceId: machine.id,
-        metadata: { sessionId: session.id },
-      });
-    }
-  }
 }
 
 /**

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -32,6 +32,11 @@ export interface TenantDeleteResult {
   authDeleteError: string | null;
 }
 
+export interface TenantListPage {
+  tenants: TenantRecord[];
+  total: number;
+}
+
 interface AuthUserSnapshot {
   email: string;
   name: string;
@@ -39,15 +44,32 @@ interface AuthUserSnapshot {
   lastSignInAt: string | null;
 }
 
-export async function listTenantsForOrg(orgId: string): Promise<TenantRecord[]> {
+export async function listTenantsForOrg(
+  orgId: string,
+  options?: { page?: number; limit?: number }
+): Promise<TenantListPage> {
+  const page = Math.max(1, options?.page ?? 1);
+  const limit = Math.min(Math.max(1, options?.limit ?? 25), 50);
+  const offset = (page - 1) * limit;
+
+  const [totalResult] = await db
+    .select({ count: count() })
+    .from(userProfiles)
+    .where(eq(userProfiles.orgId, orgId));
+
   const profiles = await db
     .select()
     .from(userProfiles)
     .where(eq(userProfiles.orgId, orgId))
-    .orderBy(desc(userProfiles.createdAt));
+    .orderBy(desc(userProfiles.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   if (profiles.length === 0) {
-    return [];
+    return {
+      tenants: [],
+      total: Number(totalResult?.count ?? 0),
+    };
   }
 
   const authUsers = await Promise.all(
@@ -60,20 +82,23 @@ export async function listTenantsForOrg(orgId: string): Promise<TenantRecord[]> 
 
   const authUserMap = new Map(authUsers);
 
-  return profiles.map((profile) => {
-    const authUser = authUserMap.get(profile.userId);
+  return {
+    tenants: profiles.map((profile) => {
+      const authUser = authUserMap.get(profile.userId);
 
-    return {
-      userId: profile.userId,
-      name: authUser?.name ?? "Unknown tenant",
-      email: authUser?.email ?? "unavailable@example.com",
-      roomNumber: profile.roomNumber,
-      subscriptionStatus: profile.subscriptionStatus,
-      joinedAt: profile.createdAt,
-      updatedAt: profile.updatedAt,
-      lastSignInAt: authUser?.lastSignInAt ?? null,
-    };
-  });
+      return {
+        userId: profile.userId,
+        name: authUser?.name ?? "Unknown tenant",
+        email: authUser?.email ?? "unavailable@example.com",
+        roomNumber: profile.roomNumber,
+        subscriptionStatus: profile.subscriptionStatus,
+        joinedAt: profile.createdAt,
+        updatedAt: profile.updatedAt,
+        lastSignInAt: authUser?.lastSignInAt ?? null,
+      };
+    }),
+    total: Number(totalResult?.count ?? 0),
+  };
 }
 
 export async function createTenantForOrg(

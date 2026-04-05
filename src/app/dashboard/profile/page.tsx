@@ -6,7 +6,14 @@ import { createSupabaseClient } from "@/lib/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { fadeUp, staggerContainer } from "@/components/ui/Animations";
 import { AnimatedCard } from "@/components/ui/AnimatedCard";
-import { ShieldCheck, CreditCard, Loader2, Sparkles, type LucideIcon } from "lucide-react";
+import {
+  CalendarClock,
+  ShieldCheck,
+  CreditCard,
+  Loader2,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
 
 export default function ProfilePage() {
   const supabase = createSupabaseClient();
@@ -96,7 +103,12 @@ export default function ProfilePage() {
         <div className="space-y-4">
           <SettingsRow icon={ShieldCheck} title="Two-Factor Authentication" description="Add an extra layer of security to your account." action="Enable" />
           <SettingsRow icon={CreditCard} title="Payment Methods" description="Manage your cards and UPI linked to DhobiQ." action="Manage" />
-          <SettingsRow icon={Sparkles} title="Notification Preferences" description="Choose how and when you get alerted." action="Configure" />
+          <SettingsRow
+            icon={CalendarClock}
+            title="Calendar Reminders"
+            description="Add pickup reminders from the machine screen to Google Calendar or Apple Calendar."
+            action="Use at Start"
+          />
         </div>
       </motion.div>
 

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { success, errors } from "@/lib/api-response";
+import { success, successWithMeta, errors } from "@/lib/api-response";
 import { requireRole, withGuard } from "@/lib/guard";
 import { createTenantSchema } from "@/forms/dashboard/tenant.schema";
 import { createTenantForOrg, listTenantsForOrg } from "@/lib/tenant-admin";
@@ -14,9 +14,20 @@ import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
 export async function GET(request: NextRequest) {
   return withGuard(async () => {
     const ctx = await requireRole(request, "pg_admin");
-    const tenants = await listTenantsForOrg(ctx.orgId);
+    const page = Math.max(
+      1,
+      parseInt(request.nextUrl.searchParams.get("page") || "1", 10)
+    );
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(request.nextUrl.searchParams.get("limit") || "5", 10))
+    );
+    const { tenants, total } = await listTenantsForOrg(ctx.orgId, {
+      page,
+      limit,
+    });
 
-    return success(tenants);
+    return successWithMeta(tenants, { page, limit, total });
   });
 }
 

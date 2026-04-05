@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { formatMachineCoordinates } from "@/lib/machine-location";
 import { cn } from "@/lib/utils";
 
 export type MachineCardStatus =
@@ -43,7 +44,10 @@ interface MachineCardProps {
   type: string;
   status: MachineCardStatus;
   floor?: string | null;
-  location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  currentSessionUserName?: string | null;
+  currentSessionStartedAt?: string | null;
   primaryAction?: MachineCardAction | null;
   secondaryAction?: MachineCardAction | null;
   adminActions?: MachineCardAction[];
@@ -71,9 +75,9 @@ const statusConfig: Record<
     icon: StopCircle,
   },
   grace_period: {
-    label: "Grace Period",
+    label: "Needs Reset",
     badgeClassName: "border-amber-500/20 bg-amber-500/10 text-amber-300",
-    description: "Cycle ended. Waiting for pickup.",
+    description: "Legacy machine state detected. Mark it available once checked.",
     icon: Clock3,
   },
   locked: {
@@ -102,7 +106,10 @@ export function MachineCard({
   type,
   status,
   floor,
-  location,
+  latitude,
+  longitude,
+  currentSessionUserName,
+  currentSessionStartedAt,
   primaryAction,
   secondaryAction,
   adminActions = [],
@@ -142,10 +149,26 @@ export function MachineCard({
         <MachineMetaRow label="Type" value={formatMachineType(type)} />
         <MachineMetaRow label="Floor" value={floor || "Not set"} />
         <MachineMetaRow
-          label="Location"
-          value={location || "Location details not added"}
+          label="Coordinates"
+          value={formatMachineCoordinates(latitude, longitude)}
           icon={MapPin}
         />
+
+        {currentSessionStartedAt ? (
+          <div className="rounded-xl border border-white/5 bg-black/10 px-4 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm text-white/45">Current session</div>
+                <div className="mt-1 text-sm font-medium text-white/85">
+                  {currentSessionUserName || "Resident in use"}
+                </div>
+              </div>
+              <div className="text-right text-sm text-white/60">
+                {formatDateTime(currentSessionStartedAt)}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {adminActions.length > 0 && (
           <div className="space-y-2 pt-2">
@@ -225,4 +248,13 @@ function formatMachineType(type: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
