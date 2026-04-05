@@ -1,13 +1,11 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { machines } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { machines, machineSessions, queueEntries } from "@/db/schema";
+import { and, eq, isNull } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
 import { requireRole, requireResourceAccess, withGuard } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
 import {
-  isValidLatitude,
-  isValidLongitude,
   normalizeCoordinate,
 } from "@/lib/machine-location";
 
@@ -95,31 +93,84 @@ export async function PATCH(
       return errors.validation(`Admin can only set status to: ${adminStatuses.join(", ")}`);
     }
 
-    const updateData: Record<string, unknown> = { updatedAt: new Date() };
-    if (name) updateData.name = name;
-    if (type) updateData.type = type;
-    if (status) updateData.status = status;
-    if (floor !== undefined) updateData.floor = floor;
-
     const parsedLatitude = normalizeCoordinate(latitude);
     const parsedLongitude = normalizeCoordinate(longitude);
 
-    if (latitude !== undefined || longitude !== undefined) {
-      if (!isValidLatitude(parsedLatitude) || !isValidLongitude(parsedLongitude)) {
-        return errors.validation(
-          "Valid machine latitude and longitude are required"
-        );
+    // ── Transactional Update ──
+    const updated = await db.transaction(async (tx) => {
+      // 1. Get the latest machine state within transaction
+      const [machine] = await tx
+        .select()
+        .from(machines)
+        .where(eq(machines.id, id))
+        .limit(1);
+
+      if (!machine) return null;
+
+      const isEnteringMaintenance =
+        status &&
+        ["maintenance", "out_of_order"].includes(status) &&
+        machine.status !== status;
+
+      const updateData: Record<string, unknown> = {
+        updatedAt: new Date(),
+        ...(name && { name }),
+        ...(type && { type }),
+        ...(status && { status }),
+        ...(floor !== undefined && { floor }),
+      };
+
+      if (latitude !== undefined || longitude !== undefined) {
+        updateData.latitude = parsedLatitude;
+        updateData.longitude = parsedLongitude;
       }
 
-      updateData.latitude = parsedLatitude;
-      updateData.longitude = parsedLongitude;
-    }
+      // 2. If entering maintenance, clean up everything
+      if (isEnteringMaintenance) {
+        // End active session if exists
+        if (machine.currentSessionId) {
+          await tx
+            .update(machineSessions)
+            .set({
+              endedAt: new Date(),
+              endReason: "admin_maintenance",
+            })
+            .where(eq(machineSessions.id, machine.currentSessionId));
+        } else {
+          // Double check for orphaned active sessions
+          await tx
+            .update(machineSessions)
+            .set({
+              endedAt: new Date(),
+              endReason: "admin_maintenance",
+            })
+            .where(
+              and(
+                eq(machineSessions.machineId, id),
+                isNull(machineSessions.endedAt)
+              )
+            );
+        }
 
-    const [updated] = await db
-      .update(machines)
-      .set(updateData)
-      .where(eq(machines.id, id))
-      .returning();
+        // Clear queue for this machine
+        await tx.delete(queueEntries).where(eq(queueEntries.machineId, id));
+
+        // Ensure status is maintenance and session ID is cleared
+        updateData.currentSessionId = null;
+      }
+
+      const [res] = await tx
+        .update(machines)
+        .set(updateData)
+        .where(eq(machines.id, id))
+        .returning();
+
+      return res;
+    });
+
+    if (!updated) {
+      return errors.notFound("Machine");
+    }
 
     await audit({
       userId: ctx.user.id,

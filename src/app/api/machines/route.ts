@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { machines, machineSessions } from "@/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { machines, machineSessions, queueEntries } from "@/db/schema";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { success, errors } from "@/lib/api-response";
 import { requireOrganization, requireRole, requireResourceAccess, withGuard } from "@/lib/guard";
 import { audit, getIpAddress, getUserAgent } from "@/lib/logger";
@@ -22,20 +22,12 @@ export async function GET(request: NextRequest) {
   return withGuard(async () => {
     const ctx = await requireOrganization(request);
 
-    await db
-      .update(machines)
-      .set({
-        status: "free",
-        currentSessionId: null,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(machines.orgId, ctx.orgId), eq(machines.status, "grace_period")));
-
     const machineList = await db
       .select()
       .from(machines)
       .where(eq(machines.orgId, ctx.orgId));
 
+    // ── Auto-Heal: Cleanup 'occupied' machines with no active session records ──
     const activeSessions = await db
       .select({
         id: machineSessions.id,
@@ -50,9 +42,40 @@ export async function GET(request: NextRequest) {
           isNull(machineSessions.endedAt)
         )
       );
+
     const activeSessionByMachineId = new Map(
       activeSessions.map((session) => [session.machineId, session])
     );
+
+    // If a machine says it's occupied but has no session in the session list, reset it to free
+    const orphans = machineList.filter(
+      (m) => m.status === "occupied" && !activeSessionByMachineId.has(m.id)
+    );
+
+    if (orphans.length > 0) {
+      await db
+        .update(machines)
+        .set({ status: "free", currentSessionId: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(machines.orgId, ctx.orgId),
+            sql`${machines.id} IN (${sql.join(
+              orphans.map((o) => o.id),
+              sql`, `
+            )})`
+          )
+        );
+      
+      // Refresh machine list after healing
+      const healedMachines = await db
+        .select()
+        .from(machines)
+        .where(eq(machines.orgId, ctx.orgId));
+      
+      machineList.length = 0;
+      machineList.push(...healedMachines);
+    }
+
     const userDisplayMap = await getOrgUserDisplayMap(
       ctx.orgId,
       activeSessions.map((session) => session.userId)
@@ -174,43 +197,77 @@ export async function PATCH(request: NextRequest) {
       return errors.validation(`Admin can only set status to: ${adminStatuses.join(", ")}`);
     }
 
-    const updateData: Record<string, unknown> = { updatedAt: new Date() };
-    if (name) updateData.name = name;
-    if (type) updateData.type = type;
-    if (status) updateData.status = status;
-    if (floor !== undefined) updateData.floor = floor;
+    // ── Transactional Update ──
+    const updated = await db.transaction(async (tx) => {
+      // 1. Get the latest machine state
+      const [machine] = await tx
+        .select()
+        .from(machines)
+        .where(eq(machines.id, machineId))
+        .limit(1);
 
-    const parsedLatitude = normalizeCoordinate(latitude);
-    const parsedLongitude = normalizeCoordinate(longitude);
+      if (!machine) return null;
 
-    if (latitude !== undefined || longitude !== undefined) {
-      if (!isValidLatitude(parsedLatitude) || !isValidLongitude(parsedLongitude)) {
-        return errors.validation(
-          "Valid machine latitude and longitude are required"
-        );
+      const isEnteringMaintenance =
+        status &&
+        ["maintenance", "out_of_order"].includes(status) &&
+        machine.status !== status;
+
+      const updateData: Record<string, unknown> = {
+        updatedAt: new Date(),
+        ...(name && { name }),
+        ...(type && { type }),
+        ...(status && { status }),
+        ...(floor !== undefined && { floor }),
+      };
+
+      if (latitude !== undefined || longitude !== undefined) {
+        updateData.latitude = normalizeCoordinate(latitude);
+        updateData.longitude = normalizeCoordinate(longitude);
       }
 
-      updateData.latitude = parsedLatitude;
-      updateData.longitude = parsedLongitude;
+      // 2. If entering maintenance, clean up everything
+      if (isEnteringMaintenance) {
+        // End active session
+        if (machine.currentSessionId) {
+          await tx
+            .update(machineSessions)
+            .set({
+              endedAt: new Date(),
+              endReason: "admin_maintenance",
+            })
+            .where(eq(machineSessions.id, machine.currentSessionId));
+        }
+
+        // Clear queue
+        await tx.delete(queueEntries).where(eq(queueEntries.machineId, machineId));
+
+        // Ensure status is maintenance and session ID is cleared
+        updateData.currentSessionId = null;
+      }
+
+      const [res] = await tx
+        .update(machines)
+        .set(updateData)
+        .where(eq(machines.id, machineId))
+        .returning();
+
+      return res;
+    });
+
+    if (!updated) {
+      return errors.notFound("Machine");
     }
 
-    const [updated] = await db
-      .update(machines)
-      .set(updateData)
-      .where(eq(machines.id, machineId))
-      .returning();
-
-    if (status) {
-      await audit({
-        userId: ctx.user.id,
-        action: status === "maintenance" ? "machine.maintenance" : "machine.created",
-        resource: "machine",
-        resourceId: machineId,
-        metadata: { previousStatus: existing.status, newStatus: status },
-        ipAddress: getIpAddress(request),
-        userAgent: getUserAgent(request),
-      });
-    }
+    await audit({
+      userId: ctx.user.id,
+      action: "machine.updated",
+      resource: "machine",
+      resourceId: machineId,
+      metadata: { previousStatus: existing.status, ...body },
+      ipAddress: getIpAddress(request),
+      userAgent: getUserAgent(request),
+    });
 
     return success(updated);
   });

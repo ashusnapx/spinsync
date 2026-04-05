@@ -115,6 +115,7 @@ export const machineSessions = pgTable("machine_sessions", {
   graceStartedAt: timestamp("grace_started_at"),
   durationMinutes: integer("duration_minutes"),
   wasAutoEnded: boolean("was_auto_ended").default(false),
+  endReason: text("end_reason"),
 });
 
 // ═══════════════════════════════════════════
